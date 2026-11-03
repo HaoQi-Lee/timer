@@ -55,6 +55,26 @@ func TestMinutesToEarn(t *testing.T) {
 	}
 }
 
+func TestMinutesToEarnFrom(t *testing.T) {
+	r := FromAnnualSalary(240000, 420)
+
+	// 一件 99 元的 T恤，已经赚了一半：还差 49.5 元，约 23 分钟
+	if got := r.MinutesToEarnFrom(49.5, 99); got != 23 {
+		t.Errorf("还差 49.5 元应需 23 分钟，实际 %d", got)
+	}
+	// 已经赚够就不要再等了
+	if got := r.MinutesToEarnFrom(99, 99); got != 0 {
+		t.Errorf("已经赚够应得 0 分钟，实际 %d", got)
+	}
+	if got := r.MinutesToEarnFrom(200, 99); got != 0 {
+		t.Errorf("赚超了应得 0 分钟，实际 %d", got)
+	}
+	// 没设年薪时无从谈起
+	if got := (Rates{}).MinutesToEarnFrom(0, 99); got != 0 {
+		t.Errorf("无速度应得 0 分钟，实际 %d", got)
+	}
+}
+
 func TestZeroAnnualSalary(t *testing.T) {
 	r := FromAnnualSalary(0, 420)
 	if r.DailyRate != 0 || r.HourlyRate != 0 || r.MinuteRate != 0 {

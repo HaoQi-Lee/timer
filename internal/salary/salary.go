@@ -46,3 +46,18 @@ func (r Rates) MinutesToEarn(price float64) int {
 	}
 	return int(math.Ceil(price / r.MinuteRate))
 }
+
+// MinutesToEarnFrom 返回从已赚 earned 元起算，还要工作多少分钟才能赚到 price 元。
+//
+// 和 MinutesToEarn 的区别是它扣掉了已经赚到的部分：提示区要的是"还要多久"，
+// 不是"从零开始要多久"。
+func (r Rates) MinutesToEarnFrom(earned, price float64) int {
+	if r.MinuteRate <= 0 {
+		return 0
+	}
+	remaining := price - earned
+	if remaining <= 0 {
+		return 0
+	}
+	return int(math.Ceil(remaining / r.MinuteRate))
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -13,9 +14,6 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
-
-// rotationInterval 是物品提示每隔多久换一个。
-const rotationInterval = 8 * time.Second
 
 // tickInterval 是状态推送给前端的频率。
 const tickInterval = 500 * time.Millisecond
@@ -37,25 +35,28 @@ type Snapshot struct {
 	DailyRate   float64      `json:"dailyRate"`
 	HourlyRate  float64      `json:"hourlyRate"`
 	MinuteRate  float64      `json:"minuteRate"`
-	HintEmoji   string       `json:"hintEmoji"`
-	HintItem    string       `json:"hintItem"`
-	HintPrice   float64      `json:"hintPrice"`
-	HintMinutes int          `json:"hintMinutes"`
-	HintText    string       `json:"hintText"`
-	Goods       []goods.Item `json:"goods"`
+	HintEmoji    string       `json:"hintEmoji"`
+	HintItem     string       `json:"hintItem"`
+	HintPrice    float64      `json:"hintPrice"`
+	HintMinutes  int          `json:"hintMinutes"`
+	HintProgress float64      `json:"hintProgress"`
+	HintText     string       `json:"hintText"`
+	Goods        []goods.Item `json:"goods"`
 }
 
 // App 是绑定给前端的门面，内部持有一切业务状态。
 type App struct {
 	ctx context.Context
 
-	mu       sync.RWMutex
-	cfg      settings.Settings
-	sched    schedule.Config
-	goods    []goods.Item
-	rotIndex int
-	rotAt    time.Time
-	seed     int64
+	mu    sync.RWMutex
+	cfg   settings.Settings
+	sched schedule.Config
+	goods []goods.Item
+	// hint 是当前盯着的那件物品，挑定之后就不再换，
+	// 直到它买得起为止（见 refreshHint）。
+	hint *goods.Item
+	rnd  *rand.Rand
+	seed int64
 }
 
 // NewApp 读取配置并准备好内部状态。
@@ -64,19 +65,18 @@ func NewApp() *App {
 	if err != nil {
 		fmt.Println("读取配置失败，改用默认配置:", err)
 	}
-	a := &App{cfg: cfg}
+	a := &App{cfg: cfg, rnd: rand.New(rand.NewSource(time.Now().UnixNano()))}
 	a.rebuild(time.Now())
 	return a
 }
 
-// rebuild 依据配置重算排班与物品轮播顺序。
+// rebuild 依据配置重算排班与物品清单。
 func (a *App) rebuild(now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sched = a.cfg.Schedule()
-	a.goods = goods.Shuffled(a.cfg.AllGoods(), daySeed(now))
-	a.rotIndex = 0
-	a.rotAt = now
+	a.goods = a.cfg.AllGoods()
+	a.hint = nil // 换了配置就重新挑一件
 	a.seed = daySeed(now)
 }
 
@@ -170,38 +170,75 @@ func (a *App) saveWindowPosition(ctx context.Context) {
 	_ = settings.Save(cfg)
 }
 
-// tick 推进物品轮播并把最新状态推给前端。
+// tick 刷新提示区状态并把最新状态推给前端。
 func (a *App) tick() {
 	now := time.Now()
 
-	a.mu.Lock()
-	if daySeed(now) != a.seed {
-		// 跨天了，重新洗牌
-		a.mu.Unlock()
+	a.mu.RLock()
+	newDay := daySeed(now) != a.seed
+	a.mu.RUnlock()
+	if newDay {
+		// 跨天了，重新挑一件物品
 		a.rebuild(now)
-		a.mu.Lock()
-	} else if now.Sub(a.rotAt) >= rotationInterval && len(a.goods) > 0 {
-		a.rotIndex = (a.rotIndex + 1) % len(a.goods)
-		a.rotAt = now
 	}
-	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "tick", a.snapshot(now))
+	rates, worked, earned := a.rates(now)
+	a.refreshHint(earned, rates.DailyRate)
+
+	runtime.EventsEmit(a.ctx, "tick", a.snapshot(now, rates, worked, earned))
 }
 
-// snapshot 计算某一时刻的完整状态，不改变任何内部状态。
-func (a *App) snapshot(now time.Time) Snapshot {
+// rates 计算某时刻的薪资速度、已工作分钟数与已赚到的钱。
+func (a *App) rates(now time.Time) (salary.Rates, int, float64) {
 	a.mu.RLock()
 	cfg := a.cfg
 	sched := a.sched
-	list := a.goods
-	idx := a.rotIndex
 	a.mu.RUnlock()
 
-	worked := sched.WorkedMinutes(now)
 	total := sched.TotalWorkMinutes()
 	rates := salary.FromAnnualSalary(cfg.AnnualSalary, total)
-	earned := rates.Earned(worked)
+	worked := sched.WorkedMinutes(now)
+	return rates, worked, rates.Earned(worked)
+}
+
+// refreshHint 决定当前提示哪件物品。
+//
+// 规则：
+//   - 只看今天一天赚得到的物品，也就是价格不超过日薪；
+//   - 已经买得起的物品不再提示；
+//   - 随机挑一件显示它的进度，挑定之后就不再换，
+//     直到它买得起为止，才换下一件。
+func (a *App) refreshHint(earned, dailyRate float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// 当前这件还没买得起，就一直盯着它。
+	if a.hint != nil && a.hint.Price > earned && a.hint.Price <= dailyRate {
+		return
+	}
+
+	pool := goods.Pending(a.goods, earned, dailyRate)
+	if len(pool) == 0 {
+		a.hint = nil
+		return
+	}
+
+	if a.rnd == nil {
+		a.rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	pick := pool[a.rnd.Intn(len(pool))]
+	a.hint = &pick
+}
+
+// snapshot 计算某一时刻的完整状态，不改变任何内部状态。
+func (a *App) snapshot(now time.Time, rates salary.Rates, worked int, earned float64) Snapshot {
+	a.mu.RLock()
+	sched := a.sched
+	list := a.goods
+	hint := a.hint
+	a.mu.RUnlock()
+
+	total := sched.TotalWorkMinutes()
 
 	progress := 0.0
 	if total > 0 {
@@ -230,21 +267,65 @@ func (a *App) snapshot(now time.Time) Snapshot {
 		Goods:       list,
 	}
 
-	if len(list) > 0 {
-		item := list[idx%len(list)]
-		s.HintEmoji = item.Emoji
-		s.HintItem = item.Name
-		s.HintPrice = item.Price
-		s.HintMinutes = rates.MinutesToEarn(item.Price)
-		s.HintText = hintText(status, item, earned, s.HintMinutes, rates.MinuteRate)
-	}
+	fillHint(&s, status, rates, earned, list, hint)
 
 	return s
 }
 
+// fillHint 填好提示区的内容。
+func fillHint(s *Snapshot, status schedule.Status, rates salary.Rates, earned float64, list []goods.Item, hint *goods.Item) {
+	if rates.MinuteRate <= 0 {
+		s.HintEmoji = "💡"
+		s.HintText = "设置年薪后，这里会告诉你还要多久能赚回来 🎯"
+		return
+	}
+
+	if hint == nil {
+		// 没有可提示的物品：要么今天根本赚不到清单里的东西，
+		// 要么今天赚得到的都已经买得起。
+		if len(goods.Reachable(list, rates.DailyRate)) == 0 {
+			s.HintEmoji = "💡"
+			s.HintText = "按现在的年薪，一天赚不到清单里的东西，调高年薪试试 🎯"
+		} else {
+			s.HintEmoji = "🎉"
+			s.HintText = "今天赚得到的东西都买得起啦 🎉"
+		}
+		return
+	}
+
+	s.HintEmoji = hint.Emoji
+	s.HintItem = hint.Name
+	s.HintPrice = hint.Price
+	s.HintMinutes = rates.MinutesToEarnFrom(earned, hint.Price)
+	if hint.Price > 0 {
+		s.HintProgress = earned / hint.Price
+		if s.HintProgress > 1 {
+			s.HintProgress = 1
+		}
+	}
+	s.HintText = hintLine(status, *hint, s.HintMinutes)
+}
+
+// hintLine 生成提示区的那句话。
+func hintLine(status schedule.Status, item goods.Item, minutes int) string {
+	switch status {
+	case schedule.StatusOffWork:
+		return fmt.Sprintf("%s · 今天已经下班啦，明天继续 💪", item.Name)
+	case schedule.StatusLunch:
+		return fmt.Sprintf("%s · 午休中，赚钱速度暂停 ☕️", item.Name)
+	case schedule.StatusNotStarted:
+		return fmt.Sprintf("%s · 上班后再过 %s 就赚回来了", item.Name, humanMinutes(minutes))
+	default:
+		return fmt.Sprintf("%s · 再过 %s 就赚回来了", item.Name, humanMinutes(minutes))
+	}
+}
+
 // Snapshot 是给前端主动拉取当前状态用的绑定。
 func (a *App) Snapshot() Snapshot {
-	return a.snapshot(time.Now())
+	now := time.Now()
+	rates, worked, earned := a.rates(now)
+	a.refreshHint(earned, rates.DailyRate)
+	return a.snapshot(now, rates, worked, earned)
 }
 
 // GetSettings 返回当前配置。
@@ -303,26 +384,6 @@ func (a *App) Quit() {
 		a.saveWindowPosition(a.ctx)
 		runtime.Quit(a.ctx)
 	}
-}
-
-// hintText 生成"再过多久能赚回某件东西"这句话。
-func hintText(status schedule.Status, item goods.Item, earned float64, minutes int, minuteRate float64) string {
-	switch status {
-	case schedule.StatusOffWork:
-		return "今天已经下班啦，明天继续 💪"
-	case schedule.StatusLunch:
-		return "午休中，赚钱速度暂停，稍后再算 ☕️"
-	}
-	if minuteRate <= 0 {
-		return "设置年薪后，这里会告诉你还要多久能赚回来 🎯"
-	}
-	if earned >= item.Price {
-		return fmt.Sprintf("%s 已经赚回来了 🎉", item.Name)
-	}
-	if status == schedule.StatusNotStarted {
-		return fmt.Sprintf("上班后再过 %s，%s 就赚回来了", humanMinutes(minutes), item.Name)
-	}
-	return fmt.Sprintf("再过 %s，%s 就赚回来了", humanMinutes(minutes), item.Name)
 }
 
 // untilStartText 生成"距离上班还有多久"。
@@ -386,7 +447,7 @@ func humanHMS(d time.Duration) string {
 	return fmt.Sprintf("%02d 分 %02d 秒", m, s)
 }
 
-// daySeed 把日期变成一个稳定的整数，用作当天轮播顺序的随机种子。
+// daySeed 把日期变成一个稳定的整数，用来判断是不是换天了。
 func daySeed(t time.Time) int64 {
 	return int64(t.Year())*10000 + int64(t.Month())*100 + int64(t.Day())
 }

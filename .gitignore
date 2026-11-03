@@ -9,6 +9,7 @@
 /shot*.png
 /verify*.png
 /run*.log
+/tmp-*.log
 /tmp-*.json
 
 # 可视化讨论产物

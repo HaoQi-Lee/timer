@@ -46,7 +46,13 @@
 
     <section class="hint" id="hintBox" title="点击查看全部物品">
       <span class="hint-emoji" id="hintEmoji">💡</span>
-      <div class="hint-text" id="hintText">加载中…</div>
+      <div class="hint-body">
+        <div class="hint-text" id="hintText">加载中…</div>
+        <div class="hint-progress" id="hintProgress">
+          <div class="hint-bar"><div class="hint-bar-fill" id="hintFill"></div></div>
+          <span class="hint-amount" id="hintAmount"></span>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -83,7 +89,7 @@
 
         <div class="field">
           <label>物品清单</label>
-          <p class="field-hint">内置清单按当天随机顺序轮播，下面可以添加你自己的物品。</p>
+          <p class="field-hint">只提示今天一天赚得到、而且你还没买得起的物品。下面可以添加你自己的物品。</p>
           <div class="goods-list" id="goodsList"></div>
           <div class="add-goods">
             <input type="text" id="newGoodsName" placeholder="物品名，如 一件卫衣" maxlength="20">

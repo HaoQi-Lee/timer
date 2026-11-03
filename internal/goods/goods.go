@@ -1,8 +1,6 @@
 // Package goods 内置用于"赚回来"估算的常见物品与价格。
 package goods
 
-import "math/rand"
-
 // Item 是一件物品及其价格，Name 里带上量词方便直接拼成一句话。
 type Item struct {
 	Name  string  `json:"name"`
@@ -30,13 +28,30 @@ var Builtin = []Item{
 	{Name: "一场旅行", Price: 3000, Emoji: "✈️"},
 }
 
-// Shuffled 返回按 seed 洗牌后的副本。同一个 seed 总是得到同样的顺序，
-// 这样"今天"看到的轮播顺序是稳定的，跨天才会变。
-func Shuffled(items []Item, seed int64) []Item {
-	out := make([]Item, len(items))
-	copy(out, items)
-	rand.New(rand.NewSource(seed)).Shuffle(len(out), func(i, j int) {
-		out[i], out[j] = out[j], out[i]
-	})
+// Reachable 返回今天一天赚得到的物品，也就是价格不超过日薪的那些。
+//
+// 一天能赚到的钱有上限（就是日薪），所以"一场旅行"这种几千块的东西
+// 永远不该出现在提示里 —— 一天是赚不回来的。
+func Reachable(list []Item, dailyRate float64) []Item {
+	out := make([]Item, 0, len(list))
+	for _, it := range list {
+		if it.Price > 0 && it.Price <= dailyRate {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// Pending 在 Reachable 的基础上去掉已经买得起的物品，返回还够得着的那些。
+//
+// 这就是提示区的候选池：今天赚得到，并且现在还买不了。
+func Pending(list []Item, earned, dailyRate float64) []Item {
+	reachable := Reachable(list, dailyRate)
+	out := make([]Item, 0, len(reachable))
+	for _, it := range reachable {
+		if it.Price > earned {
+			out = append(out, it)
+		}
+	}
 	return out
 }

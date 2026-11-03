@@ -42,6 +42,15 @@
 
     $('hintEmoji').textContent = s.hintEmoji || '💡';
     $('hintText').textContent = s.hintText;
+
+    // 有具体物品时才显示进度条；没有物品（比如还没设年薪）就只留一句话。
+    const hasItem = !!s.hintItem;
+    $('hintProgress').style.display = hasItem ? 'flex' : 'none';
+    if (hasItem) {
+      const p = Math.max(0, Math.min(1, Number(s.hintProgress) || 0));
+      $('hintFill').style.width = (p * 100).toFixed(2) + '%';
+      $('hintAmount').textContent = money(s.earned, 1) + ' / ' + money(s.hintPrice, 1);
+    }
   }
 
   // ---------- 设置表单 ----------
