@@ -2,8 +2,13 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"time"
+
+	"timer/internal/settings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -48,8 +53,26 @@ func main() {
 			Appearance:           mac.NSAppearanceNameDarkAqua,
 		},
 	}); err != nil {
-		println("启动失败:", err.Error())
+		logFatal("启动失败", err)
 	}
+}
+
+// logFatal 记录致命错误。
+//
+// 程序编译成图形子系统后没有控制台可输出，错误只能落到日志文件里。
+func logFatal(msg string, err error) {
+	line := fmt.Sprintf("%s %s: %v\n", time.Now().Format("2006-01-02 15:04:05"), msg, err)
+
+	path, perr := settings.Path()
+	if perr == nil {
+		dir := filepath.Dir(path)
+		if merr := os.MkdirAll(dir, 0o755); merr == nil {
+			if ferr := os.WriteFile(filepath.Join(dir, "error.log"), []byte(line), 0o644); ferr == nil {
+				return
+			}
+		}
+	}
+	fmt.Print(line)
 }
 
 // hasFlag 判断命令行里有没有某个参数。

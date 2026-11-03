@@ -38,7 +38,16 @@
 ./build.sh
 ```
 
-Windows 上得到 `timer.exe`，直接双击即可。
+Windows 上得到 `timer.exe`，直接双击即可 —— **不会弹出黑色控制台窗口**。
+
+> 之所以没有控制台，是因为构建时带了 `-H windowsgui`，程序被编译成 Windows GUI 子系统。
+> 如果你手敲 `go build` 而忘了这个 flag，双击就会闪出一个命令行窗口。
+> `build.sh` 已经处理好了，也可以用下面这条自查：
+>
+> ```bash
+> go run ./tools/peinfo timer.exe
+> # 子系统: Windows GUI —— 双击不会弹控制台窗口
+> ```
 
 ### macOS
 
@@ -59,11 +68,14 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 ## 使用
 
+- **启动**：双击 `timer.exe`（macOS 双击 `工作计时器.app`）直接出窗口，不需要任何命令行。
 - **拖动**：按住窗口顶部标题栏拖动，位置会被记住，下次启动还在原地。
 - **设置**：点右上角 ⚙，或右键菜单里的「设置…」，或原生菜单栏的「设置」。
   设置面板打开时窗口会变宽，保存后自动缩回。
 - **退出**：右上角 ✕，或右键菜单里的「退出计时器」。
 - **命令行**：`timer --settings` 启动即打开设置面板。
+
+> 因为程序没有控制台，万一启动失败，错误会写进配置文件同目录的 `error.log`。
 
 ## 配置
 
@@ -81,6 +93,7 @@ internal/goods/      物品清单与每日轮播顺序
 internal/settings/   配置默认值、修正与持久化
 frontend/dist/       前端（纯 HTML/CSS/JS，无构建步骤）
 tools/shot/          开发期抓窗口截图的小工具
+tools/peinfo/        查可执行文件的 PE 子系统（确认不会弹控制台）
 ```
 
 业务逻辑全部放在 Go 侧并有单元测试，前端只负责把算好的结果显示出来。

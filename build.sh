@@ -28,7 +28,15 @@ case "${1:-native}" in
     ;;
   *)
     echo "==> 构建可执行文件"
-    go build -tags "desktop,production" -ldflags "-w -s" -o timer .
-    echo "完成：$(pwd)/timer"
+    # -H windowsgui：编译成图形子系统程序，双击时不会弹出黑色控制台窗口。
+    # Wails 官方 CLI 在生产构建时也会自动加这个 flag。
+    ldflags="-w -s"
+    out="timer"
+    if [ "$(go env GOOS)" = "windows" ]; then
+      ldflags="$ldflags -H windowsgui"
+      out="timer.exe"
+    fi
+    go build -tags "desktop,production" -ldflags "$ldflags" -o "$out" .
+    echo "完成：$(pwd)/$out"
     ;;
 esac

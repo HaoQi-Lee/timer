@@ -7,8 +7,12 @@
 
 # 开发期临时文件
 /shot*.png
+/verify*.png
 /run*.log
 /tmp-*.json
 
 # 可视化讨论产物
 /.superpowers/
+
+# IDE
+/.idea/
