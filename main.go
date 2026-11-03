@@ -22,8 +22,8 @@ import (
 var assets embed.FS
 
 func main() {
-	app := NewApp()
 	openSettings := hasFlag("-s", "--settings")
+	app := NewApp(openSettings)
 
 	if err := wails.Run(&options.App{
 		Title:            "上班计时器",
@@ -38,19 +38,19 @@ func main() {
 		AssetServer:      &assetserver.Options{Assets: assets},
 		Menu:             buildMenu(app),
 		Bind:             []interface{}{app},
-		OnStartup:        app.startupWith(openSettings),
+		OnStartup:        app.startup,
 		OnDomReady:       app.domReady,
 		OnBeforeClose:    app.beforeClose,
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
-			Theme:                windows.Dark,
+			Theme:                windowsTheme(app.Theme()),
 		},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHidden(),
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
-			Appearance:           mac.NSAppearanceNameDarkAqua,
+			Appearance:           macAppearance(app.Theme()),
 		},
 	}); err != nil {
 		logFatal("启动失败", err)
@@ -85,6 +85,22 @@ func hasFlag(names ...string) bool {
 		}
 	}
 	return false
+}
+
+// windowsTheme 把界面主题换算成 Windows 的窗口主题。
+func windowsTheme(theme string) windows.Theme {
+	if theme == settings.ThemeLight {
+		return windows.Light
+	}
+	return windows.Dark
+}
+
+// macAppearance 把界面主题换算成 macOS 的系统外观。
+func macAppearance(theme string) mac.AppearanceType {
+	if theme == settings.ThemeLight {
+		return mac.NSAppearanceNameAqua
+	}
+	return mac.NSAppearanceNameDarkAqua
 }
 
 // buildMenu 生成应用菜单。macOS 上第一个子菜单会成为应用菜单，所以那里放应用名。

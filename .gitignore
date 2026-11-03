@@ -8,6 +8,7 @@
 # 开发期临时文件
 /shot*.png
 /verify*.png
+/probe*.png
 /run*.log
 /tmp-*.log
 /tmp-*.json

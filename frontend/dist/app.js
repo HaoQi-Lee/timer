@@ -11,6 +11,31 @@
   let settings = null;
   let customGoods = [];
   let topOn = true;
+  let theme = 'dark';
+
+  // ---------- 主题 ----------
+
+  function applyTheme(t) {
+    theme = t === 'light' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = theme;
+    $('btnTheme').textContent = theme === 'light' ? '☀️' : '🌙';
+    $('btnTheme').title = theme === 'light' ? '切换到深色主题' : '切换到浅色主题';
+    $('lightTheme').checked = theme === 'light';
+    try {
+      localStorage.setItem('work-timer-theme', theme);
+    } catch (e) {
+      // localStorage 不可用也不影响使用
+    }
+  }
+
+  async function setTheme(t) {
+    applyTheme(t);
+    try {
+      await api().SetTheme(theme);
+    } catch (e) {
+      console.error('保存主题失败', e);
+    }
+  }
 
   // ---------- 渲染 ----------
 
@@ -19,7 +44,7 @@
   }
 
   function render(s) {
-    $('widget').dataset.tone = s.statusTone;
+    document.documentElement.dataset.tone = s.statusTone;
 
     $('statusText').textContent = s.status;
     $('clock').textContent = s.clock;
@@ -64,6 +89,7 @@
     $('alwaysOnTop').checked = !!s.alwaysOnTop;
     topOn = !!s.alwaysOnTop;
     updateTopLabel();
+    applyTheme(s.theme);
     customGoods = (s.customGoods || []).slice();
     renderGoods();
     updateSalaryHint();
@@ -161,6 +187,7 @@
       workResume: $('workResume').value || '13:00',
       workEnd: $('workEnd').value || '17:00',
       alwaysOnTop: $('alwaysOnTop').checked,
+      theme: theme,
       customGoods: customGoods,
       windowX: settings ? (settings.windowX || 0) : 0,
       windowY: settings ? (settings.windowY || 0) : 0
@@ -227,12 +254,15 @@
 
   $('btnSettings').addEventListener('click', openSettings);
   $('btnClose').addEventListener('click', () => api().Quit());
+  $('btnMin').addEventListener('click', () => api().Minimize());
+  $('btnTheme').addEventListener('click', () => setTheme(theme === 'light' ? 'dark' : 'light'));
   $('btnCloseSettings').addEventListener('click', closeSettings);
   $('btnCancelSettings').addEventListener('click', closeSettings);
   $('btnSaveSettings').addEventListener('click', saveSettings);
   $('btnAddGoods').addEventListener('click', addGoods);
   $('hintBox').addEventListener('click', openSettings);
   $('annualSalary').addEventListener('input', updateSalaryHint);
+  $('lightTheme').addEventListener('change', (e) => setTheme(e.target.checked ? 'light' : 'dark'));
   $('newGoodsPrice').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addGoods();
   });
@@ -251,6 +281,7 @@
       render(s);
       settings = await api().GetSettings();
       fillForm(settings);
+      if (s.openSettings) openSettings();
     } catch (e) {
       console.error('初始化失败', e);
     }

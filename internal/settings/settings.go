@@ -10,6 +10,14 @@ import (
 	"timer/internal/schedule"
 )
 
+// 主题取值。
+const (
+	// ThemeDark 深色主题。
+	ThemeDark = "dark"
+	// ThemeLight 浅色主题。
+	ThemeLight = "light"
+)
+
 // Settings 是程序的全部可配置项。
 type Settings struct {
 	// AnnualSalary 年薪（元），用于折算日薪。
@@ -24,6 +32,8 @@ type Settings struct {
 	WorkEnd string `json:"workEnd"`
 	// AlwaysOnTop 窗口是否置顶。
 	AlwaysOnTop bool `json:"alwaysOnTop"`
+	// Theme 界面主题，"dark" 或 "light"。
+	Theme string `json:"theme"`
 	// CustomGoods 用户自己添加的物品，会追加在内置清单之后。
 	CustomGoods []goods.Item `json:"customGoods"`
 	// WindowX / WindowY 记住窗口位置，负数表示还没记住过。
@@ -31,7 +41,7 @@ type Settings struct {
 	WindowY int `json:"windowY"`
 }
 
-// Default 返回默认配置：年薪 24 万，8:30–17:00，午休 11:30–13:00，窗口置顶。
+// Default 返回默认配置：年薪 24 万，8:30–17:00，午休 11:30–13:00，窗口置顶，深色主题。
 func Default() Settings {
 	return Settings{
 		AnnualSalary: 240000,
@@ -40,11 +50,13 @@ func Default() Settings {
 		WorkResume:   "13:00",
 		WorkEnd:      "17:00",
 		AlwaysOnTop:  true,
+		Theme:        ThemeDark,
 		CustomGoods:  nil,
 	}
 }
 
-// Normalize 修正不合法的字段：时间格式错误时回退到默认值，年薪为负时归零。
+// Normalize 修正不合法的字段：时间格式错误时回退到默认值，年薪为负时归零，
+// 主题不是 dark/light 时回退到深色。
 func (s Settings) Normalize() Settings {
 	d := Default()
 	if _, ok := schedule.ParseHM(s.WorkStart); !ok {
@@ -62,7 +74,15 @@ func (s Settings) Normalize() Settings {
 	if s.AnnualSalary < 0 {
 		s.AnnualSalary = 0
 	}
+	if s.Theme != ThemeDark && s.Theme != ThemeLight {
+		s.Theme = d.Theme
+	}
 	return s
+}
+
+// IsLight 判断是不是浅色主题。
+func (s Settings) IsLight() bool {
+	return s.Theme == ThemeLight
 }
 
 // Schedule 把配置里的时间字符串转成排班表。

@@ -5,17 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>上班计时器</title>
   <link rel="stylesheet" href="style.css">
+  <script>
+    // 尽早套用上次的主题，免得窗口亮起来时闪一下白。
+    try {
+      var t = localStorage.getItem('work-timer-theme');
+      if (t) document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
 </head>
 <body>
-  <div class="widget" id="widget" data-tone="idle">
-    <header class="titlebar" style="--wails-draggable:drag">
+  <div class="widget" id="widget">
+    <header class="titlebar">
       <div class="status-pill">
         <span class="dot"></span>
         <span id="statusText">加载中</span>
       </div>
       <div class="toolbar">
-        <button class="icon-btn" id="btnSettings" title="设置" style="--wails-draggable:no-drag">⚙</button>
-        <button class="icon-btn" id="btnClose" title="关闭计时器" style="--wails-draggable:no-drag">✕</button>
+        <button class="icon-btn" id="btnTheme" title="切换主题">🌙</button>
+        <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
+        <button class="icon-btn" id="btnMin" title="最小化">—</button>
+        <button class="icon-btn" id="btnClose" title="关闭计时器">✕</button>
       </div>
     </header>
 
@@ -61,7 +70,7 @@
     <div class="panel">
       <div class="panel-head">
         <h2>设置</h2>
-        <button class="icon-btn" id="btnCloseSettings" style="--wails-draggable:no-drag">✕</button>
+        <button class="icon-btn" id="btnCloseSettings">✕</button>
       </div>
 
       <div class="panel-body">
@@ -83,13 +92,16 @@
         </div>
 
         <div class="field">
-          <label>窗口</label>
-          <label class="switch"><input type="checkbox" id="alwaysOnTop" checked><span>始终置顶</span></label>
+          <label>窗口与外观</label>
+          <div class="switch-list">
+            <label class="switch"><input type="checkbox" id="alwaysOnTop" checked><span>始终置顶</span></label>
+            <label class="switch"><input type="checkbox" id="lightTheme"><span>浅色主题</span></label>
+          </div>
         </div>
 
         <div class="field">
           <label>物品清单</label>
-          <p class="field-hint">只提示今天一天赚得到、而且你还没买得起的物品。下面可以添加你自己的物品。</p>
+          <p class="field-hint">内置 46 件物品，价格从 12 元到 4999 元均匀铺开；只提示今天一天赚得到、而且你还没买得起的那些。下面可以添加你自己的物品。</p>
           <div class="goods-list" id="goodsList"></div>
           <div class="add-goods">
             <input type="text" id="newGoodsName" placeholder="物品名，如 一件卫衣" maxlength="20">

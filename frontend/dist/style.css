@@ -1,9 +1,69 @@
 :root {
+  --radius: 14px;
+
+  /* 状态色板：未上班 / 上班中 / 午休中 / 已下班 */
+  --tone-idle: 125, 155, 200;
+  --tone-working: 52, 211, 153;
+  --tone-lunch: 251, 191, 36;
+  --tone-off: 148, 163, 184;
+
+  /* 默认强调色，状态色还没算出来时先用它 */
   --tone: 125, 155, 200;
+
+  /* 文字与描边 */
   --text: 233, 239, 252;
   --muted: 146, 160, 187;
   --line: 255, 255, 255;
-  --radius: 14px;
+
+  /* 表面 */
+  --surface-1: 26, 34, 56;
+  --surface-2: 10, 15, 26;
+  --panel-1: 26, 33, 54;
+  --panel-2: 12, 17, 32;
+  --menu: 28, 36, 58;
+  --field: 255, 255, 255;
+  --field-alpha: 0.045;
+  --scrim: 6, 9, 16;
+  --scrim-alpha: 0.72;
+  --on-accent: 11, 16, 28;
+
+  /* 光晕与阴影 */
+  --tone-glow: 0.14;
+  --shadow-widget: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --shadow-menu: 0 14px 40px rgba(0, 0, 0, 0.55);
+  --glow-clock: 0 0 26px rgba(var(--tone), 0.28);
+  --glow-amount: 0 0 22px rgba(var(--tone), 0.32);
+  --glow-bar: 0 0 14px rgba(var(--tone), 0.45);
+}
+
+/* 浅色主题：白底简洁风，颜色整体压暗以保证在白底上的对比度 */
+:root[data-theme="light"] {
+  --tone-idle: 92, 111, 145;
+  --tone-working: 19, 128, 92;
+  --tone-lunch: 165, 108, 8;
+  --tone-off: 106, 119, 138;
+
+  --text: 26, 34, 51;
+  --muted: 114, 127, 149;
+  --line: 26, 34, 51;
+
+  --surface-1: 255, 255, 255;
+  --surface-2: 240, 244, 250;
+  --panel-1: 252, 253, 255;
+  --panel-2: 240, 244, 250;
+  --menu: 255, 255, 255;
+  --field: 255, 255, 255;
+  --field-alpha: 1;
+  --scrim: 226, 232, 240;
+  --scrim-alpha: 0.66;
+  --on-accent: 255, 255, 255;
+
+  --tone-glow: 0.09;
+  --shadow-widget: 0 16px 44px rgba(15, 23, 42, 0.13);
+  --shadow-menu: 0 12px 32px rgba(15, 23, 42, 0.16);
+  --glow-clock: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --glow-amount: none;
+  --glow-bar: none;
 }
 
 * { box-sizing: border-box; }
@@ -20,10 +80,23 @@ html, body {
   cursor: default;
 }
 
-.widget[data-tone="working"] { --tone: 52, 211, 153; }
-.widget[data-tone="lunch"]   { --tone: 251, 191, 36; }
-.widget[data-tone="idle"]    { --tone: 125, 155, 200; }
-.widget[data-tone="off"]     { --tone: 148, 163, 184; }
+/* 整窗都可以按住拖动（包括设置面板），交互元素再单独关掉 */
+body { --wails-draggable: drag; }
+
+.icon-btn,
+.btn,
+input,
+.goods-del,
+.hint,
+.ctx-menu {
+  --wails-draggable: no-drag;
+}
+
+/* 状态色定义在根节点上，设置面板也跟着当前状态换强调色 */
+:root[data-tone="working"] { --tone: var(--tone-working); }
+:root[data-tone="lunch"]   { --tone: var(--tone-lunch); }
+:root[data-tone="idle"]    { --tone: var(--tone-idle); }
+:root[data-tone="off"]     { --tone: var(--tone-off); }
 
 /* ---------- 主体卡片 ---------- */
 
@@ -33,15 +106,16 @@ html, body {
   padding: 14px 18px 18px;
   border-radius: var(--radius);
   background:
-    radial-gradient(120% 60% at 50% 0%, rgba(var(--tone), 0.14), transparent 62%),
-    linear-gradient(165deg, rgba(26, 34, 56, 0.97), rgba(10, 15, 26, 0.98));
+    radial-gradient(120% 60% at 50% 0%, rgba(var(--tone), var(--tone-glow)), transparent 62%),
+    linear-gradient(165deg, rgb(var(--surface-1)), rgb(var(--surface-2)));
   border: 1px solid rgba(var(--line), 0.09);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-widget);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 12px;
   overflow: hidden;
+  transition: background 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
 }
 
 /* ---------- 标题栏 ---------- */
@@ -111,8 +185,8 @@ html, body {
   font-weight: 600;
   letter-spacing: 1.5px;
   font-variant-numeric: tabular-nums;
-  color: #fff;
-  text-shadow: 0 0 26px rgba(var(--tone), 0.28);
+  color: rgb(var(--text));
+  text-shadow: var(--glow-clock);
   line-height: 1.15;
 }
 
@@ -179,7 +253,7 @@ html, body {
   width: 0;
   border-radius: 99px;
   background: linear-gradient(90deg, rgba(var(--tone), 0.45), rgb(var(--tone)));
-  box-shadow: 0 0 14px rgba(var(--tone), 0.45);
+  box-shadow: var(--glow-bar);
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -201,7 +275,7 @@ html, body {
   letter-spacing: 0.4px;
   font-variant-numeric: tabular-nums;
   color: rgb(var(--tone));
-  text-shadow: 0 0 22px rgba(var(--tone), 0.32);
+  text-shadow: var(--glow-amount);
   line-height: 1.2;
 }
 
@@ -267,7 +341,7 @@ html, body {
   width: 0;
   border-radius: 99px;
   background: linear-gradient(90deg, rgba(var(--tone), 0.45), rgb(var(--tone)));
-  box-shadow: 0 0 10px rgba(var(--tone), 0.4);
+  box-shadow: var(--glow-bar);
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -286,9 +360,10 @@ html, body {
   display: none;
   align-items: stretch;
   justify-content: center;
-  background: rgba(6, 9, 16, 0.72);
+  background: rgba(var(--scrim), var(--scrim-alpha));
   backdrop-filter: blur(10px);
   z-index: 20;
+  transition: background 0.28s ease;
 }
 
 .overlay.show { display: flex; }
@@ -298,8 +373,9 @@ html, body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(170deg, #1a2136, #0c1120);
+  background: linear-gradient(170deg, rgb(var(--panel-1)), rgb(var(--panel-2)));
   border-right: 1px solid rgba(var(--line), 0.07);
+  transition: background 0.28s ease;
 }
 
 .panel-head {
@@ -357,7 +433,7 @@ input[type="time"] {
   padding: 9px 11px;
   border-radius: 9px;
   border: 1px solid rgba(var(--line), 0.11);
-  background: rgba(var(--line), 0.045);
+  background: rgba(var(--field), var(--field-alpha));
   color: rgb(var(--text));
   font-size: 13px;
   font-family: inherit;
@@ -387,6 +463,12 @@ input::placeholder { color: rgba(var(--muted), 0.55); }
 .time-item span {
   font-size: 11.5px;
   color: rgba(var(--muted), 0.9);
+}
+
+.switch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
 }
 
 .switch {
@@ -467,15 +549,15 @@ input::placeholder { color: rgba(var(--muted), 0.55); }
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .btn:hover { background: rgba(var(--line), 0.13); }
 
 .btn.primary {
-  background: rgba(var(--tone), 0.9);
+  background: rgba(var(--tone), 0.92);
   border-color: transparent;
-  color: #0b101c;
+  color: rgb(var(--on-accent));
   font-weight: 600;
 }
 
@@ -500,10 +582,11 @@ input::placeholder { color: rgba(var(--muted), 0.55); }
   min-width: 148px;
   padding: 5px;
   border-radius: 10px;
-  background: rgba(28, 36, 58, 0.98);
+  background: rgba(var(--menu), 0.98);
   border: 1px solid rgba(var(--line), 0.11);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-menu);
   z-index: 40;
+  transition: background 0.28s ease, box-shadow 0.28s ease;
 }
 
 .ctx-menu.show { display: block; }

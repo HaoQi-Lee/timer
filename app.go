@@ -42,6 +42,10 @@ type Snapshot struct {
 	HintProgress float64      `json:"hintProgress"`
 	HintText     string       `json:"hintText"`
 	Goods        []goods.Item `json:"goods"`
+	// OpenSettings 启动时要不要直接弹出设置面板。
+	//
+	// 用状态位而不是事件来通知，是为了避开"事件比前端注册得早"的竞态。
+	OpenSettings bool `json:"openSettings"`
 }
 
 // App 是绑定给前端的门面，内部持有一切业务状态。
@@ -57,15 +61,21 @@ type App struct {
 	hint *goods.Item
 	rnd  *rand.Rand
 	seed int64
+	// openOnStart 启动后要不要自动弹出设置面板。
+	openOnStart bool
 }
 
 // NewApp 读取配置并准备好内部状态。
-func NewApp() *App {
+func NewApp(openOnStart bool) *App {
 	cfg, err := settings.Load()
 	if err != nil {
 		fmt.Println("读取配置失败，改用默认配置:", err)
 	}
-	a := &App{cfg: cfg, rnd: rand.New(rand.NewSource(time.Now().UnixNano()))}
+	a := &App{
+		cfg:         cfg,
+		rnd:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		openOnStart: openOnStart,
+	}
 	a.rebuild(time.Now())
 	return a
 }
@@ -90,20 +100,6 @@ func (a *App) startup(ctx context.Context) {
 			a.tick()
 		}
 	}()
-}
-
-// startupWith 在常规启动之外，允许用命令行参数让应用一启动就打开设置面板。
-func (a *App) startupWith(openSettings bool) func(ctx context.Context) {
-	return func(ctx context.Context) {
-		a.startup(ctx)
-		if !openSettings {
-			return
-		}
-		go func() {
-			time.Sleep(800 * time.Millisecond)
-			a.OpenSettings()
-		}()
-	}
 }
 
 // domReady 在前端就绪后摆好窗口位置，并重新确认置顶状态。
@@ -236,6 +232,7 @@ func (a *App) snapshot(now time.Time, rates salary.Rates, worked int, earned flo
 	sched := a.sched
 	list := a.goods
 	hint := a.hint
+	openOnStart := a.openOnStart
 	a.mu.RUnlock()
 
 	total := sched.TotalWorkMinutes()
@@ -265,6 +262,7 @@ func (a *App) snapshot(now time.Time, rates salary.Rates, worked int, earned flo
 		HourlyRate:  rates.HourlyRate,
 		MinuteRate:  rates.MinuteRate,
 		Goods:       list,
+		OpenSettings: openOnStart,
 	}
 
 	fillHint(&s, status, rates, earned, list, hint)
@@ -371,6 +369,26 @@ func (a *App) AlwaysOnTop() bool {
 	return a.cfg.AlwaysOnTop
 }
 
+// SetTheme 切换界面主题并记住这个选择。
+func (a *App) SetTheme(theme string) error {
+	if theme != settings.ThemeDark && theme != settings.ThemeLight {
+		return fmt.Errorf("未知主题: %q", theme)
+	}
+	a.mu.Lock()
+	a.cfg.Theme = theme
+	cfg := a.cfg
+	a.mu.Unlock()
+
+	return settings.Save(cfg)
+}
+
+// Theme 返回当前主题（"dark" 或 "light"）。
+func (a *App) Theme() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.cfg.Theme
+}
+
 // OpenSettings 让前端弹出设置面板。
 func (a *App) OpenSettings() {
 	if a.ctx != nil {
@@ -383,6 +401,13 @@ func (a *App) Quit() {
 	if a.ctx != nil {
 		a.saveWindowPosition(a.ctx)
 		runtime.Quit(a.ctx)
+	}
+}
+
+// Minimize 把窗口收进任务栏。
+func (a *App) Minimize() {
+	if a.ctx != nil {
+		runtime.WindowMinimise(a.ctx)
 	}
 }
 

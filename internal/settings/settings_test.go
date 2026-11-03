@@ -15,6 +15,30 @@ func TestDefaultSettings(t *testing.T) {
 	if !d.AlwaysOnTop {
 		t.Error("默认应置顶")
 	}
+	if d.Theme != ThemeDark {
+		t.Errorf("默认应为深色主题，实际 %s", d.Theme)
+	}
+}
+
+func TestNormalizeFixesBadTheme(t *testing.T) {
+	if got := (Settings{Theme: "粉红"}).Normalize().Theme; got != ThemeDark {
+		t.Errorf("非法主题应回退深色，实际 %s", got)
+	}
+	if got := (Settings{Theme: ThemeLight}).Normalize().Theme; got != ThemeLight {
+		t.Errorf("浅色主题应保留，实际 %s", got)
+	}
+	if got := (Settings{}).Normalize().Theme; got != ThemeDark {
+		t.Errorf("空主题应回退深色，实际 %s", got)
+	}
+}
+
+func TestIsLight(t *testing.T) {
+	if !(Settings{Theme: ThemeLight}).IsLight() {
+		t.Error("浅色主题 IsLight 应为 true")
+	}
+	if (Settings{Theme: ThemeDark}).IsLight() {
+		t.Error("深色主题 IsLight 应为 false")
+	}
 }
 
 func TestNormalizeFixesBadValues(t *testing.T) {
