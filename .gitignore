@@ -1,0 +1,14 @@
+# 构建产物
+/timer
+/timer.exe
+/build/bin/
+/shot-tool.exe
+*.exe
+
+# 开发期临时文件
+/shot*.png
+/run*.log
+/tmp-*.json
+
+# 可视化讨论产物
+/.superpowers/

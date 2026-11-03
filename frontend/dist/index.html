@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上班计时器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="widget" id="widget" data-tone="idle">
+    <header class="titlebar" style="--wails-draggable:drag">
+      <div class="status-pill">
+        <span class="dot"></span>
+        <span id="statusText">加载中</span>
+      </div>
+      <div class="toolbar">
+        <button class="icon-btn" id="btnSettings" title="设置" style="--wails-draggable:no-drag">⚙</button>
+        <button class="icon-btn" id="btnClose" title="关闭计时器" style="--wails-draggable:no-drag">✕</button>
+      </div>
+    </header>
+
+    <section class="clock-block">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="date" id="dateLine">-------年--月--日 星期-</div>
+    </section>
+
+    <section class="countdown">
+      <div class="label" id="countdownLabel">距离下班还有</div>
+      <div class="countdown-value" id="untilOff">--</div>
+      <div class="sub" id="untilStart"></div>
+    </section>
+
+    <section class="progress-block">
+      <div class="row">
+        <span class="label">今日工时</span>
+        <span class="row-value" id="workedText">-- / --</span>
+      </div>
+      <div class="bar"><div class="bar-fill" id="progressFill"></div></div>
+    </section>
+
+    <section class="money">
+      <div class="label">今日已赚</div>
+      <div class="amount" id="earned">￥0.00</div>
+      <div class="rate" id="rate">￥0.00 /小时 · ￥0.00 /分钟</div>
+    </section>
+
+    <section class="hint" id="hintBox" title="点击查看全部物品">
+      <span class="hint-emoji" id="hintEmoji">💡</span>
+      <div class="hint-text" id="hintText">加载中…</div>
+    </section>
+  </div>
+
+  <!-- 设置面板 -->
+  <div class="overlay" id="overlay">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>设置</h2>
+        <button class="icon-btn" id="btnCloseSettings" style="--wails-draggable:no-drag">✕</button>
+      </div>
+
+      <div class="panel-body">
+        <div class="field">
+          <label for="annualSalary">年薪（元）</label>
+          <input type="number" id="annualSalary" min="0" step="1000" inputmode="numeric" placeholder="240000">
+          <p class="field-hint" id="salaryHint">按每年 261 个法定工作日折算日薪。</p>
+        </div>
+
+        <div class="field">
+          <label>上下班时间</label>
+          <div class="time-grid">
+            <label class="time-item"><span>上班</span><input type="time" id="workStart" value="08:30"></label>
+            <label class="time-item"><span>午休</span><input type="time" id="lunchStart" value="11:30"></label>
+            <label class="time-item"><span>下午上班</span><input type="time" id="workResume" value="13:00"></label>
+            <label class="time-item"><span>下班</span><input type="time" id="workEnd" value="17:00"></label>
+          </div>
+          <p class="field-hint">午休时段不计入工时，也不发工资。</p>
+        </div>
+
+        <div class="field">
+          <label>窗口</label>
+          <label class="switch"><input type="checkbox" id="alwaysOnTop" checked><span>始终置顶</span></label>
+        </div>
+
+        <div class="field">
+          <label>物品清单</label>
+          <p class="field-hint">内置清单按当天随机顺序轮播，下面可以添加你自己的物品。</p>
+          <div class="goods-list" id="goodsList"></div>
+          <div class="add-goods">
+            <input type="text" id="newGoodsName" placeholder="物品名，如 一件卫衣" maxlength="20">
+            <input type="number" id="newGoodsPrice" placeholder="价格" min="0" step="1">
+            <button class="btn" id="btnAddGoods">添加</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-foot">
+        <button class="btn ghost" id="btnCancelSettings">取消</button>
+        <button class="btn primary" id="btnSaveSettings">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右键菜单 -->
+  <div class="ctx-menu" id="ctxMenu">
+    <button data-action="settings">设置…</button>
+    <button data-action="toggle-top" id="ctxToggleTop">始终置顶</button>
+    <div class="ctx-sep"></div>
+    <button data-action="quit" class="danger">退出计时器</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

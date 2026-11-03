@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "上班计时器",
+  "outputfilename": "work-timer",
+  "frontend:install": "echo skip",
+  "frontend:build": "echo skip",
+  "frontend:dir": "frontend",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": ""
+  },
+  "info": {
+    "companyName": "",
+    "productName": "上班计时器",
+    "productVersion": "1.0.0",
+    "copyright": "",
+    "comments": "一个可置顶的上班计时器"
+  }
+}
