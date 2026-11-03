@@ -5,13 +5,55 @@ import "testing"
 func TestBuiltinHasTShirt(t *testing.T) {
 	for _, it := range Builtin {
 		if it.Name == "一件 T恤" {
-			if it.Price != 99 {
-				t.Errorf("T 恤价格应为 99，实际 %v", it.Price)
+			if it.Price != 220 {
+				t.Errorf("T 恤价格应为 220，实际 %v", it.Price)
 			}
 			return
 		}
 	}
 	t.Fatal("内置清单里应有一件 T恤")
+}
+
+func TestBuiltinIsSortedByPrice(t *testing.T) {
+	for i := 1; i < len(Builtin); i++ {
+		if Builtin[i].Price <= Builtin[i-1].Price {
+			t.Fatalf("价格应递增，第 %d 项 %v 不大于第 %d 项 %v",
+				i, Builtin[i].Price, i-1, Builtin[i-1].Price)
+		}
+	}
+}
+
+func TestBuiltinCoversTenToFiveThousand(t *testing.T) {
+	if Builtin[0].Price < 10 {
+		t.Errorf("最便宜的物品应不低于 10 元，实际 %v", Builtin[0].Price)
+	}
+	if last := Builtin[len(Builtin)-1].Price; last > 5000 {
+		t.Errorf("最贵的物品不应超过 5000 元，实际 %v", last)
+	}
+}
+
+func TestBuiltinIsSpreadEvenly(t *testing.T) {
+	// 清单要覆盖整个区间：每一档价格（每 500 元一档）里都该有东西，
+	// 否则日薪一高就只剩下最贵的几件可选。
+	buckets := map[int]int{}
+	for _, it := range Builtin {
+		buckets[int(it.Price)/500]++
+	}
+	for b := 0; b < 10; b++ {
+		if buckets[b] == 0 {
+			t.Errorf("%d–%d 元这一档没有任何物品", b*500, (b+1)*500)
+		}
+	}
+}
+
+func TestBuiltinHasNoDuplicateNames(t *testing.T) {
+	seen := map[string]bool{}
+	for _, it := range Builtin {
+		if seen[it.Name] {
+			t.Errorf("物品名重复: %s", it.Name)
+		}
+		seen[it.Name] = true
+	}
 }
 
 func TestReachableOnlyKeepsItemsWithinOneDay(t *testing.T) {
