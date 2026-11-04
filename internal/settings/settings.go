@@ -18,6 +18,33 @@ const (
 	ThemeLight = "light"
 )
 
+// 桌宠表情包取值。Go 侧只认这几个键，名字和台词都在前端。
+const (
+	// PetPackClassic 咸鱼（默认）。
+	PetPackClassic = "classic"
+	// PetPackHappy 元气。
+	PetPackHappy = "happy"
+	// PetPackFoodie 干饭。
+	PetPackFoodie = "foodie"
+	// PetPackSleepy 睡觉。
+	PetPackSleepy = "sleepy"
+	// PetPackAngry 暴躁。
+	PetPackAngry = "angry"
+)
+
+// PetPacks 是全部合法的表情包键。
+var PetPacks = []string{PetPackClassic, PetPackHappy, PetPackFoodie, PetPackSleepy, PetPackAngry}
+
+// ValidPetPack 判断是不是合法的表情包键。
+func ValidPetPack(pack string) bool {
+	for _, p := range PetPacks {
+		if p == pack {
+			return true
+		}
+	}
+	return false
+}
+
 // Settings 是程序的全部可配置项。
 type Settings struct {
 	// AnnualSalary 年薪（元），用于折算日薪。
@@ -39,6 +66,13 @@ type Settings struct {
 	// WindowX / WindowY 记住窗口位置，负数表示还没记住过。
 	WindowX int `json:"windowX"`
 	WindowY int `json:"windowY"`
+	// PetEnabled 要不要开启桌面宠物（大肥鱼）。
+	PetEnabled bool `json:"petEnabled"`
+	// PetPack 宠物当前的表情包。
+	PetPack string `json:"petPack"`
+	// PetX / PetY 宠物窗口位置，0 表示还没记住过。
+	PetX int `json:"petX"`
+	PetY int `json:"petY"`
 }
 
 // Default 返回默认配置：年薪 24 万，8:30–17:00，午休 11:30–13:00，窗口置顶，深色主题。
@@ -76,6 +110,9 @@ func (s Settings) Normalize() Settings {
 	}
 	if s.Theme != ThemeDark && s.Theme != ThemeLight {
 		s.Theme = d.Theme
+	}
+	if !ValidPetPack(s.PetPack) {
+		s.PetPack = PetPackClassic
 	}
 	return s
 }

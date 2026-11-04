@@ -96,7 +96,9 @@
           <div class="switch-list">
             <label class="switch"><input type="checkbox" id="alwaysOnTop" checked><span>始终置顶</span></label>
             <label class="switch"><input type="checkbox" id="lightTheme"><span>浅色主题</span></label>
+            <label class="switch"><input type="checkbox" id="petEnabled"><span>桌面宠物（大肥鱼）</span></label>
           </div>
+          <p class="field-hint">开启后桌面会多一位大肥鱼，能戳、能拖、能投喂，右键可以收起。</p>
         </div>
 
         <div class="field">
@@ -122,6 +124,7 @@
   <div class="ctx-menu" id="ctxMenu">
     <button data-action="settings">设置…</button>
     <button data-action="toggle-top" id="ctxToggleTop">始终置顶</button>
+    <button data-action="toggle-pet" id="ctxTogglePet">开启桌面宠物</button>
     <div class="ctx-sep"></div>
     <button data-action="quit" class="danger">退出计时器</button>
   </div>

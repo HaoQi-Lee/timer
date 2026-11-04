@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -20,21 +22,21 @@ const tickInterval = 500 * time.Millisecond
 
 // Snapshot 是推送给前端的一帧完整状态，前端只负责照着画。
 type Snapshot struct {
-	Date        string       `json:"date"`
-	Clock       string       `json:"clock"`
-	Weekday     string       `json:"weekday"`
-	Status      string       `json:"status"`
-	StatusTone  string       `json:"statusTone"`
-	UntilOff    string       `json:"untilOff"`
-	UntilOffSec int          `json:"untilOffSec"`
-	UntilStart  string       `json:"untilStart"`
-	Worked      string       `json:"worked"`
-	TotalWork   string       `json:"totalWork"`
-	Progress    float64      `json:"progress"`
-	Earned      float64      `json:"earned"`
-	DailyRate   float64      `json:"dailyRate"`
-	HourlyRate  float64      `json:"hourlyRate"`
-	MinuteRate  float64      `json:"minuteRate"`
+	Date         string       `json:"date"`
+	Clock        string       `json:"clock"`
+	Weekday      string       `json:"weekday"`
+	Status       string       `json:"status"`
+	StatusTone   string       `json:"statusTone"`
+	UntilOff     string       `json:"untilOff"`
+	UntilOffSec  int          `json:"untilOffSec"`
+	UntilStart   string       `json:"untilStart"`
+	Worked       string       `json:"worked"`
+	TotalWork    string       `json:"totalWork"`
+	Progress     float64      `json:"progress"`
+	Earned       float64      `json:"earned"`
+	DailyRate    float64      `json:"dailyRate"`
+	HourlyRate   float64      `json:"hourlyRate"`
+	MinuteRate   float64      `json:"minuteRate"`
 	HintEmoji    string       `json:"hintEmoji"`
 	HintItem     string       `json:"hintItem"`
 	HintPrice    float64      `json:"hintPrice"`
@@ -63,6 +65,11 @@ type App struct {
 	seed int64
 	// openOnStart 启动后要不要自动弹出设置面板。
 	openOnStart bool
+
+	// 宠物子进程。Wails v2 没有多窗口，桌面宠物靠同一个 exe
+	// 再拉一个 -pet 进程实现，主进程负责它的生杀。
+	petMu  sync.Mutex
+	petCmd *exec.Cmd
 }
 
 // NewApp 读取配置并准备好内部状态。
@@ -118,6 +125,16 @@ func (a *App) domReady(ctx context.Context) {
 	if top {
 		runtime.WindowSetAlwaysOnTop(ctx, true)
 	}
+
+	// 上次开着桌面宠物的话，这次也把它拉起来。
+	a.mu.RLock()
+	petOn := a.cfg.PetEnabled
+	a.mu.RUnlock()
+	if petOn {
+		if err := a.startPet(); err != nil {
+			fmt.Println("启动桌面宠物失败:", err)
+		}
+	}
 }
 
 // restorePosition 判断记住的窗口位置还能不能用。
@@ -147,9 +164,10 @@ func (a *App) restorePosition(ctx context.Context, x, y int) bool {
 	return true
 }
 
-// beforeClose 在窗口关闭前记住窗口位置。
+// beforeClose 在窗口关闭前记住窗口位置，并把宠物一起带走。
 func (a *App) beforeClose(ctx context.Context) bool {
 	a.saveWindowPosition(ctx)
+	a.stopPet()
 	return false
 }
 
@@ -246,22 +264,22 @@ func (a *App) snapshot(now time.Time, rates salary.Rates, worked int, earned flo
 	untilOff := schedule.Until(now, sched.WorkEnd)
 
 	s := Snapshot{
-		Date:        now.Format("2006年01月02日"),
-		Clock:       now.Format("15:04:05"),
-		Weekday:     weekdayCN(now),
-		Status:      string(status),
-		StatusTone:  toneOf(status),
-		UntilOff:    humanHMS(untilOff),
-		UntilOffSec: int(untilOff.Seconds()),
-		UntilStart:  untilStartText(now, sched, status),
-		Worked:      humanMinutes(worked),
-		TotalWork:   humanMinutes(total),
-		Progress:    progress,
-		Earned:      earned,
-		DailyRate:   rates.DailyRate,
-		HourlyRate:  rates.HourlyRate,
-		MinuteRate:  rates.MinuteRate,
-		Goods:       list,
+		Date:         now.Format("2006年01月02日"),
+		Clock:        now.Format("15:04:05"),
+		Weekday:      weekdayCN(now),
+		Status:       string(status),
+		StatusTone:   toneOf(status),
+		UntilOff:     humanHMS(untilOff),
+		UntilOffSec:  int(untilOff.Seconds()),
+		UntilStart:   untilStartText(now, sched, status),
+		Worked:       humanMinutes(worked),
+		TotalWork:    humanMinutes(total),
+		Progress:     progress,
+		Earned:       earned,
+		DailyRate:    rates.DailyRate,
+		HourlyRate:   rates.HourlyRate,
+		MinuteRate:   rates.MinuteRate,
+		Goods:        list,
 		OpenSettings: openOnStart,
 	}
 
@@ -409,6 +427,95 @@ func (a *App) Minimize() {
 	if a.ctx != nil {
 		runtime.WindowMinimise(a.ctx)
 	}
+}
+
+// PetEnabled 返回桌面宠物开关状态。
+func (a *App) PetEnabled() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.cfg.PetEnabled
+}
+
+// SetPetEnabled 开关桌面宠物并记住这个选择。
+func (a *App) SetPetEnabled(on bool) error {
+	a.mu.Lock()
+	a.cfg.PetEnabled = on
+	cfg := a.cfg
+	a.mu.Unlock()
+
+	if err := settings.Save(cfg); err != nil {
+		return err
+	}
+	if on {
+		return a.startPet()
+	}
+	a.stopPet()
+	return nil
+}
+
+// startPet 拉起桌宠子进程，已经在跑就不重复拉。
+func (a *App) startPet() error {
+	a.petMu.Lock()
+	defer a.petMu.Unlock()
+
+	if a.petCmd != nil && a.petCmd.Process != nil && a.petCmd.ProcessState == nil {
+		return nil
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "-pet")
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	a.petCmd = cmd
+	go a.watchPet(cmd)
+	return nil
+}
+
+// watchPet 盯着宠物进程。它自己退出（比如右键收起）时，
+// 把开关状态同步成关，并通知前端刷新界面。
+func (a *App) watchPet(cmd *exec.Cmd) {
+	_ = cmd.Wait()
+
+	a.petMu.Lock()
+	current := a.petCmd == cmd
+	if current {
+		a.petCmd = nil
+	}
+	a.petMu.Unlock()
+	if !current {
+		return // 已经被主动停掉或换成了新进程，不用管
+	}
+
+	a.mu.Lock()
+	if a.cfg.PetEnabled {
+		a.cfg.PetEnabled = false
+	}
+	cfg := a.cfg
+	a.mu.Unlock()
+	_ = settings.Save(cfg)
+
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "pet-state", false)
+	}
+}
+
+// stopPet 停掉桌宠子进程。主进程退出时也走这里，宠物跟着一起走。
+func (a *App) stopPet() {
+	a.petMu.Lock()
+	cmd := a.petCmd
+	a.petCmd = nil
+	a.petMu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	// 收尸，免得留下僵尸进程句柄；watchPet 里的 Wait 已经失效，无害。
+	go func() { _ = cmd.Wait() }()
 }
 
 // untilStartText 生成"距离上班还有多久"。

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>桌宠大肥鱼</title>
+  <link rel="stylesheet" href="pet.css">
+</head>
+<body>
+  <div id="stage">
+    <!-- 台词气泡 -->
+    <div class="bubble" id="bubble"></div>
+
+    <!-- 大肥鱼本体：dsh-pet 的 VP9 透明动画（640×360 舞台，人物固定在
+         命中框 200,50-440,335 内；窗口就开成命中框大小，视频裁着放。
+         素材出处见 pet-assets/WHALE_ATTRIBUTION.md） -->
+    <div class="fish-wrap" id="fishWrap">
+      <!-- 显示层：视频帧画到 canvas 上（部分 WebView2 的视频直渲染会丢 VP9 透明，
+           canvas 合成路径不丢）；video 只当解码器用，不直接上屏 -->
+      <canvas id="petCanvas" width="240" height="285"></canvas>
+      <video id="petVideo" autoplay muted loop playsinline preload="auto" style="display:none"></video>
+    </div>
+  </div>
+
+  <!-- 右键菜单：只留收起 -->
+  <div class="ctx-menu" id="ctxMenu">
+    <button data-action="close" class="danger">收起大肥鱼</button>
+  </div>
+
+  <script src="pet.js"></script>
+</body>
+</html>

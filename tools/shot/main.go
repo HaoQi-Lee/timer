@@ -35,6 +35,9 @@ var (
 	procDeleteObject             = gdi32.NewProc("DeleteObject")
 	procDeleteDC                 = gdi32.NewProc("DeleteDC")
 	procGetWindowLong            = user32.NewProc("GetWindowLongW")
+	procWindowFromPoint          = user32.NewProc("WindowFromPoint")
+	procGetAncestor              = user32.NewProc("GetAncestor")
+	procGetClassName             = user32.NewProc("GetClassNameW")
 	procSetCursorPos             = user32.NewProc("SetCursorPos")
 	procMouseEvent               = user32.NewProc("mouse_event")
 	procGetCursorPos             = user32.NewProc("GetCursorPos")
@@ -81,7 +84,14 @@ func main() {
 	zoom := flag.Int("zoom", 1, "放大倍数")
 	list := flag.Bool("list", false, "只列出该进程的所有窗口标题")
 	closePID := flag.Uint("closepid", 0, "关掉这个进程的第一个可见窗口（不看标题）")
+	hitX := flag.Int("hitx", -1, "查这个屏幕坐标命中的窗口（配合 -hity），验证透明像素点击穿透")
+	hitY := flag.Int("hity", 0, "命中查询的纵坐标（屏幕坐标）")
 	flag.Parse()
+
+	if *hitX >= 0 {
+		hittest(*hitX, *hitY)
+		return
+	}
 
 	if *list {
 		listWindows(uint32(*pid))
@@ -157,6 +167,34 @@ func main() {
 	vw, _, _ := procGetSystemMetrics.Call(78) // SM_CXVIRTUALSCREEN
 	vh, _, _ := procGetSystemMetrics.Call(79) // SM_CYVIRTUALSCREEN
 	fmt.Printf("VIRTUALSCREEN x=%d y=%d w=%d h=%d\n", vx, vy, vw, vh)
+}
+
+// hittest 查屏幕上某一点命中的窗口，用来验证桌宠透明像素是否真的点击穿透。
+func hittest(x, y int) {
+	pt := point{X: int32(x), Y: int32(y)}
+	// WindowFromPoint 的 POINT 按值传：x64 上 8 字节结构体直接编进一个寄存器
+	h, _, _ := procWindowFromPoint.Call(*(*uintptr)(unsafe.Pointer(&pt)))
+	describeWindow(h, "命中")
+	root, _, _ := procGetAncestor.Call(h, 2 /* GA_ROOT */)
+	describeWindow(root, "根窗口")
+}
+
+// describeWindow 打印窗口的类名和标题。
+func describeWindow(h uintptr, label string) {
+	if h == 0 {
+		fmt.Printf("%s: 无\n", label)
+		return
+	}
+	var cls [64]uint16
+	procGetClassName.Call(h, uintptr(unsafe.Pointer(&cls[0])), 64)
+	title := ""
+	if length, _, _ := procGetWindowTextLen.Call(h); length > 0 {
+		buf := make([]uint16, length+1)
+		procGetWindowText.Call(h, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		title = windows.UTF16ToString(buf)
+	}
+	fmt.Printf("%s: hwnd=%d class=%q title=%q\n", label, h,
+		windows.UTF16ToString(cls[:]), title)
 }
 
 // findWindow 按标题找第一个可见的顶层窗口；pid 非 0 时只在该进程里找。

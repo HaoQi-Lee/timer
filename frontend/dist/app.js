@@ -11,6 +11,7 @@
   let settings = null;
   let customGoods = [];
   let topOn = true;
+  let petOn = false;
   let theme = 'dark';
 
   // ---------- 主题 ----------
@@ -89,6 +90,9 @@
     $('alwaysOnTop').checked = !!s.alwaysOnTop;
     topOn = !!s.alwaysOnTop;
     updateTopLabel();
+    $('petEnabled').checked = !!s.petEnabled;
+    petOn = !!s.petEnabled;
+    updatePetLabel();
     applyTheme(s.theme);
     customGoods = (s.customGoods || []).slice();
     renderGoods();
@@ -190,11 +194,17 @@
       theme: theme,
       customGoods: customGoods,
       windowX: settings ? (settings.windowX || 0) : 0,
-      windowY: settings ? (settings.windowY || 0) : 0
+      windowY: settings ? (settings.windowY || 0) : 0,
+      petEnabled: $('petEnabled').checked,
+      petPack: settings ? (settings.petPack || 'classic') : 'classic',
+      petX: settings ? (settings.petX || 0) : 0,
+      petY: settings ? (settings.petY || 0) : 0
     };
     try {
       await api().SaveSettings(payload);
       await api().SetAlwaysOnTop(payload.alwaysOnTop);
+      await api().SetPetEnabled(payload.petEnabled);
+      petOn = payload.petEnabled;
       settings = payload;
       closeSettings();
     } catch (e) {
@@ -215,6 +225,24 @@
     }
     $('alwaysOnTop').checked = topOn;
     updateTopLabel();
+  }
+
+  // ---------- 桌面宠物 ----------
+
+  function updatePetLabel() {
+    $('ctxTogglePet').textContent = petOn ? '收起桌面宠物' : '开启桌面宠物';
+  }
+
+  async function togglePet() {
+    const next = !petOn;
+    try {
+      await api().SetPetEnabled(next);
+      petOn = next;
+    } catch (e) {
+      console.error('切换桌面宠物失败', e);
+    }
+    $('petEnabled').checked = petOn;
+    updatePetLabel();
   }
 
   // ---------- 右键菜单 ----------
@@ -246,6 +274,7 @@
     switch (btn.dataset.action) {
       case 'settings': openSettings(); break;
       case 'toggle-top': toggleTop(); break;
+      case 'toggle-pet': togglePet(); break;
       case 'quit': api().Quit(); break;
     }
   });
@@ -272,6 +301,12 @@
 
   window.runtime.EventsOn('tick', render);
   window.runtime.EventsOn('open-settings', openSettings);
+  // 宠物自己被收起时，主窗口这边同步开关状态
+  window.runtime.EventsOn('pet-state', (on) => {
+    petOn = !!on;
+    $('petEnabled').checked = petOn;
+    updatePetLabel();
+  });
 
   // ---------- 启动 ----------
 

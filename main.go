@@ -22,6 +22,14 @@ import (
 var assets embed.FS
 
 func main() {
+	// 桌面宠物是同一个 exe 的第二个进程，跑在一扇独立的透明置顶窗口里。
+	if hasFlag("-pet", "--pet") {
+		if err := runPet(); err != nil {
+			logFatal("启动桌宠失败", err)
+		}
+		return
+	}
+
 	openSettings := hasFlag("-s", "--settings")
 	app := NewApp(openSettings)
 

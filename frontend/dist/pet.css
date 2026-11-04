@@ -1,0 +1,150 @@
+/* 桌宠大肥鱼（dsh-pet 透明视频动画版）。窗口透明，角色本体漂在桌面上。 */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  user-select: none;
+  --wails-draggable: drag;
+}
+
+#stage {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* ---------- 角色本体 ---------- */
+
+/* 窗口 420×285：右侧 240×285 是角色（dsh-pet 舞台命中框），左侧留给台词气泡。
+   视频帧由 pet.js 每帧画到 canvas 上（只画命中框那一块）；video 元素不上屏。 */
+.fish-wrap {
+  position: absolute;
+  left: 180px;
+  top: 0;
+  width: 240px;
+  height: 285px;
+  overflow: hidden;
+}
+
+.fish-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ---------- 互动反馈 ---------- */
+
+/* 投喂的食物落下来（视频本身在演吃东西，这里只加一点掉落的食物 emoji） */
+.food {
+  position: absolute;
+  bottom: 45%;
+  font-size: 21px;
+  pointer-events: none;
+  animation: food-fall 0.55s cubic-bezier(0.5, 0, 0.8, 0.6) forwards;
+}
+@keyframes food-fall {
+  0%   { transform: translateY(-90px) rotate(0deg); opacity: 1; }
+  80%  { transform: translateY(0) rotate(200deg); opacity: 1; }
+  100% { transform: translateY(4px) rotate(240deg); opacity: 0; }
+}
+
+/* 冒出来的小心心（窗口按角色轮廓裁剪，飘动范围控制在身体内） */
+.heart {
+  position: absolute;
+  bottom: 45%;
+  font-size: 16px;
+  pointer-events: none;
+  animation: heart-float 1.15s ease-out forwards;
+}
+@keyframes heart-float {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.4) rotate(0deg); }
+  15%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-44px) scale(1.2) rotate(var(--r, 20deg)); }
+}
+
+/* ---------- 台词气泡 ---------- */
+
+/* 气泡在角色左侧的独立区域（窗口左半 180px），不压角色本体；
+   显示期间那块区域会并进轮廓蒙版，不会被窗口区域裁掉 */
+.bubble {
+  position: absolute;
+  top: 46px;
+  left: 8px;
+  max-width: 164px;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: rgba(32, 32, 38, 0.9);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(6px) scale(0.92);
+  transform-origin: right center;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.bubble.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* 气泡尾巴指向右边的角色 */
+.bubble::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  top: 18px;
+  border: 8px solid transparent;
+  border-left-color: rgba(32, 32, 38, 0.92);
+  border-right: 0;
+}
+
+/* ---------- 右键菜单 ---------- */
+
+.ctx-menu {
+  --wails-draggable: no-drag;
+  position: fixed;
+  display: none;
+  min-width: 156px;
+  padding: 5px;
+  border-radius: 10px;
+  background: rgba(30, 30, 36, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  z-index: 40;
+}
+
+.ctx-menu.show { display: block; }
+
+.ctx-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 11px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-menu button:hover { background: rgba(255, 255, 255, 0.09); }
+
+.ctx-menu button.danger { color: #f87171; }
+.ctx-menu button.danger:hover { background: rgba(248, 113, 113, 0.15); }
