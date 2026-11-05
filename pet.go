@@ -31,8 +31,10 @@ const petWindowTitle = "桌宠大肥鱼"
 // 静态图，而是前端定时从视频当前帧采样（pet.js 的 sampleMask）报上来，
 // 窗口边缘始终跟着角色像素走。
 
-// petWidth / petHeight 是宠物窗口的初始物理大小（100% 缩放下），
-// 实际尺寸在 domReady 里按屏幕 DPI 修正。
+// petWidth / petHeight 是宠物窗口的逻辑大小。Wails 创建窗口时自己会按
+// 屏幕 DPI 缩放成物理尺寸（CSS 视口恒为 420×285），千万别再手动乘缩放
+// 去调 WindowSetSize——那是逻辑像素，会被二次放大，窗口区域就套不上
+// 前端固定像素布局的角色了（角色会被裁掉小半个）。
 // 右侧 240×285 是角色（命中框），左侧 180px 留给台词气泡——
 // 气泡别压在角色身上，显示期间那块会并进轮廓蒙版（见 pet.js）。
 const (
@@ -134,9 +136,6 @@ func (p *PetApp) startup(ctx context.Context) {
 
 // domReady 摆好宠物窗口的位置：记住过就用记住的，否则居中显示。
 func (p *PetApp) domReady(ctx context.Context) {
-	// 先把窗口收成贴着角色的尺寸，再摆位置，免得位置按旧尺寸算。
-	p.hugPetWindow(ctx)
-
 	// 重新读盘而不是用启动时的内存副本：主进程可能刚写过位置。
 	cfg, err := settings.Load()
 	if err != nil {
@@ -149,25 +148,6 @@ func (p *PetApp) domReady(ctx context.Context) {
 	// 窗口建好后把 Wails 默认的毛玻璃背景换成纯透明，别糊到桌面。
 	// 轮廓区域不用在这边套：前端视频一起来就开始采样上报（SetHitMask）。
 	unblurPetWindow()
-}
-
-// hugPetWindow 把窗口收成素材本体的大小（命中框矩形、零留白）。
-//
-// Wails 的窗口用物理像素、素材是逻辑像素，得乘上屏幕缩放，
-// 否则高 DPI 下窗口放不下原尺寸素材、角色会被压小。
-func (p *PetApp) hugPetWindow(ctx context.Context) {
-	scale := 1.0
-	if screens, err := runtime.ScreenGetAll(ctx); err == nil {
-		for _, s := range screens {
-			if s.IsPrimary && s.Size.Width > 0 {
-				scale = float64(s.PhysicalSize.Width) / float64(s.Size.Width)
-				break
-			}
-		}
-	}
-	runtime.WindowSetSize(ctx,
-		int(float64(petWidth)*scale+0.5),
-		int(float64(petHeight)*scale+0.5))
 }
 
 // beforeClose 在宠物窗口关闭前记住位置。
