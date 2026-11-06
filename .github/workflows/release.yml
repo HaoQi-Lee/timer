@@ -39,6 +39,9 @@ jobs:
       - name: 安装 Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
+      - name: 跑测试
+        run: go test ./...
+
       - name: 构建
         run: wails build -platform ${{ matrix.platform }}
 

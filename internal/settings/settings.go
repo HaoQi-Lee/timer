@@ -73,19 +73,39 @@ type Settings struct {
 	// PetX / PetY 宠物窗口位置，0 表示还没记住过。
 	PetX int `json:"petX"`
 	PetY int `json:"petY"`
+	// PetAlwaysOnTop 宠物窗口是否置顶。指针是为了区分"还没选过"和"不置顶"：
+	// nil 表示还没选过，按默认（置顶）处理。
+	PetAlwaysOnTop *bool `json:"petAlwaysOnTop,omitempty"`
+	// AutoStart 登录系统时自动启动（目前仅 Windows）。
+	AutoStart bool `json:"autoStart"`
+	// NotifyOffWork 下班时弹系统通知提醒。同样是"没选过按默认（提醒）处理"，
+	// 不然老配置文件里没有这个字段，零值会把默认开启吃掉。
+	NotifyOffWork *bool `json:"notifyOffWork,omitempty"`
+}
+
+// PetOnTop 返回宠物窗口当前是否置顶。没选过视为置顶。
+func (s Settings) PetOnTop() bool {
+	return s.PetAlwaysOnTop == nil || *s.PetAlwaysOnTop
+}
+
+// WantOffWorkNotify 返回要不要弹下班提醒。没选过视为要。
+func (s Settings) WantOffWorkNotify() bool {
+	return s.NotifyOffWork == nil || *s.NotifyOffWork
 }
 
 // Default 返回默认配置：年薪 24 万，8:30–17:00，午休 11:30–13:00，窗口置顶，深色主题。
 func Default() Settings {
+	notify := true
 	return Settings{
-		AnnualSalary: 240000,
-		WorkStart:    "08:30",
-		LunchStart:   "11:30",
-		WorkResume:   "13:00",
-		WorkEnd:      "17:00",
-		AlwaysOnTop:  true,
-		Theme:        ThemeDark,
-		CustomGoods:  nil,
+		AnnualSalary:  240000,
+		WorkStart:     "08:30",
+		LunchStart:    "11:30",
+		WorkResume:    "13:00",
+		WorkEnd:       "17:00",
+		AlwaysOnTop:   true,
+		Theme:         ThemeDark,
+		CustomGoods:   nil,
+		NotifyOffWork: &notify,
 	}
 }
 
@@ -113,6 +133,14 @@ func (s Settings) Normalize() Settings {
 	}
 	if !ValidPetPack(s.PetPack) {
 		s.PetPack = PetPackClassic
+	}
+	if s.PetAlwaysOnTop == nil {
+		top := true
+		s.PetAlwaysOnTop = &top
+	}
+	if s.NotifyOffWork == nil {
+		notify := true
+		s.NotifyOffWork = &notify
 	}
 	return s
 }
@@ -189,6 +217,9 @@ func Save(s Settings) error {
 }
 
 // SaveTo 把配置写入指定路径。
+//
+// 先写临时文件再原子替换：主进程和宠物进程都会写这个文件，
+// 直接截断重写的话，另一边恰好读到半截就把配置读坏了。
 func SaveTo(path string, s Settings) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -197,5 +228,9 @@ func SaveTo(path string, s Settings) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

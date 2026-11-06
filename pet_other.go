@@ -18,3 +18,9 @@ func applyPetMask() {}
 
 // setPetRegionFull 在非 Windows 上是空操作：窗口始终是整窗矩形。
 func setPetRegionFull(bool) {}
+
+// waitOutsideClick 非 Windows 上没有实现，等取消就返回（菜单只靠窗口内点击收起）。
+func waitOutsideClick(cancel <-chan struct{}) bool {
+	<-cancel
+	return false
+}

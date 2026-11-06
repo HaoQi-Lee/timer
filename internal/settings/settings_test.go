@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -105,5 +106,80 @@ func TestLoadMissingFileReturnsDefault(t *testing.T) {
 	}
 	if got.AnnualSalary != Default().AnnualSalary {
 		t.Errorf("文件不存在应返回默认配置，实际 %+v", got)
+	}
+}
+
+func TestNormalizePetAlwaysOnTop(t *testing.T) {
+	// 没选过 → 视为置顶
+	var empty Settings
+	if !empty.PetOnTop() {
+		t.Error("没选过置顶时 PetOnTop 应为 true")
+	}
+	empty = empty.Normalize()
+	if empty.PetAlwaysOnTop == nil || !*empty.PetAlwaysOnTop {
+		t.Errorf("Normalize 应把 nil 补成 true，实际 %v", empty.PetAlwaysOnTop)
+	}
+	// 明确选了不置顶 → 保持 false
+	no := false
+	s := Settings{PetAlwaysOnTop: &no}.Normalize()
+	if s.PetOnTop() {
+		t.Error("明确选择不置顶后 PetOnTop 应为 false")
+	}
+}
+
+func TestSaveAtomicLeavesNoTmp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := SaveTo(path, Default()); err != nil {
+		t.Fatalf("保存失败: %v", err)
+	}
+	// 覆盖保存后不应留下临时文件
+	if err := SaveTo(path, Default()); err != nil {
+		t.Fatalf("二次保存失败: %v", err)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("不应残留临时文件: %v", err)
+	}
+	if _, err := LoadFrom(path); err != nil {
+		t.Fatalf("原子替换后应能正常读取: %v", err)
+	}
+}
+
+func TestNewFieldsRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s := Default()
+	s.AutoStart = true
+	mute := false
+	s.NotifyOffWork = &mute
+	if err := SaveTo(path, s); err != nil {
+		t.Fatalf("保存失败: %v", err)
+	}
+	got, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if !got.AutoStart {
+		t.Error("开机自启应能往返保存")
+	}
+	if got.WantOffWorkNotify() {
+		t.Error("下班提醒关掉后应保持关闭")
+	}
+}
+
+func TestOldConfigUpgradesKeepDefaults(t *testing.T) {
+	// 老版本配置文件里没有新字段，升级后应按默认处理：置顶、弹下班提醒
+	path := filepath.Join(t.TempDir(), "settings.json")
+	old := `{"annualSalary":240000,"workStart":"08:30","lunchStart":"11:30","workResume":"13:00","workEnd":"17:00"}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatalf("写入失败: %v", err)
+	}
+	got, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if !got.PetOnTop() {
+		t.Error("老配置升级后宠物应默认置顶")
+	}
+	if !got.WantOffWorkNotify() {
+		t.Error("老配置升级后应默认弹下班提醒")
 	}
 }

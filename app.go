@@ -14,36 +14,40 @@ import (
 	"timer/internal/schedule"
 	"timer/internal/settings"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // tickInterval 是状态推送给前端的频率。
 const tickInterval = 500 * time.Millisecond
 
+// mainWindowTitle 主窗口标题，多屏摆位时按它找窗口句柄。
+const mainWindowTitle = "上班计时器"
+
 // Snapshot 是推送给前端的一帧完整状态，前端只负责照着画。
+//
+// 只放前端真会显示的字段——它每 500ms 就序列化发一次，
+// 没人读的数据（比如整个物品清单）不要塞进来。
 type Snapshot struct {
-	Date         string       `json:"date"`
-	Clock        string       `json:"clock"`
-	Weekday      string       `json:"weekday"`
-	Status       string       `json:"status"`
-	StatusTone   string       `json:"statusTone"`
-	UntilOff     string       `json:"untilOff"`
-	UntilOffSec  int          `json:"untilOffSec"`
-	UntilStart   string       `json:"untilStart"`
-	Worked       string       `json:"worked"`
-	TotalWork    string       `json:"totalWork"`
-	Progress     float64      `json:"progress"`
-	Earned       float64      `json:"earned"`
-	DailyRate    float64      `json:"dailyRate"`
-	HourlyRate   float64      `json:"hourlyRate"`
-	MinuteRate   float64      `json:"minuteRate"`
-	HintEmoji    string       `json:"hintEmoji"`
-	HintItem     string       `json:"hintItem"`
-	HintPrice    float64      `json:"hintPrice"`
-	HintMinutes  int          `json:"hintMinutes"`
-	HintProgress float64      `json:"hintProgress"`
-	HintText     string       `json:"hintText"`
-	Goods        []goods.Item `json:"goods"`
+	Date         string  `json:"date"`
+	Clock        string  `json:"clock"`
+	Weekday      string  `json:"weekday"`
+	Status       string  `json:"status"`
+	StatusTone   string  `json:"statusTone"`
+	UntilOff     string  `json:"untilOff"`
+	UntilStart   string  `json:"untilStart"`
+	Worked       string  `json:"worked"`
+	TotalWork    string  `json:"totalWork"`
+	Progress     float64 `json:"progress"`
+	Earned       float64 `json:"earned"`
+	HourlyRate   float64 `json:"hourlyRate"`
+	MinuteRate   float64 `json:"minuteRate"`
+	HintEmoji    string  `json:"hintEmoji"`
+	HintItem     string  `json:"hintItem"`
+	HintPrice    float64 `json:"hintPrice"`
+	HintMinutes  int     `json:"hintMinutes"`
+	HintProgress float64 `json:"hintProgress"`
+	HintText     string  `json:"hintText"`
 	// OpenSettings 启动时要不要直接弹出设置面板。
 	//
 	// 用状态位而不是事件来通知，是为了避开"事件比前端注册得早"的竞态。
@@ -65,6 +69,11 @@ type App struct {
 	seed int64
 	// openOnStart 启动后要不要自动弹出设置面板。
 	openOnStart bool
+	// quiet 为 true 时只算状态不发提醒：宠物进程复用本引擎，
+	// 下班通知只由主进程发一次，不然会弹两份。
+	quiet bool
+	// lastStatus 上次 tick 时的阶段，用来识别"刚跨过下班点"。
+	lastStatus schedule.Status
 
 	// 宠物子进程。Wails v2 没有多窗口，桌面宠物靠同一个 exe
 	// 再拉一个 -pet 进程实现，主进程负责它的生杀。
@@ -97,6 +106,36 @@ func (a *App) rebuild(now time.Time) {
 	a.seed = daySeed(now)
 }
 
+// applyConfig 替换配置并立即生效（宠物进程热加载主窗口的改动用）。
+func (a *App) applyConfig(cfg settings.Settings) {
+	a.mu.Lock()
+	a.cfg = cfg
+	a.mu.Unlock()
+	a.rebuild(time.Now())
+}
+
+// updateSettings 从磁盘读最新配置、只改指定字段后写回。
+//
+// 主进程和宠物进程共用一个配置文件，谁都不能拿内存里的整份副本
+// 直接覆盖磁盘——否则会把另一边刚写的字段冲掉
+// （典型事故：主进程保存设置，把宠物刚挪好的位置打回旧坐标）。
+func updateSettings(mutate func(cfg *settings.Settings)) error {
+	cfg, err := settings.Load()
+	if err != nil {
+		cfg = settings.Default()
+	}
+	mutate(&cfg)
+	return settings.Save(cfg)
+}
+
+// timerSignature 提取影响计时数字段的指纹，用来判断配置变更要不要热加载。
+//
+// 只看计时相关字段：宠物只关心这些，位置之类的字段变了不用重算。
+func timerSignature(s settings.Settings) string {
+	return fmt.Sprintf("%.0f|%s|%s|%s|%s|%v",
+		s.AnnualSalary, s.WorkStart, s.LunchStart, s.WorkResume, s.WorkEnd, s.CustomGoods)
+}
+
 // startup 在窗口启动后开始定时推送状态。
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -116,7 +155,7 @@ func (a *App) domReady(ctx context.Context) {
 	top := a.cfg.AlwaysOnTop
 	a.mu.RUnlock()
 
-	if !a.restorePosition(ctx, x, y) {
+	if !placeWindow(ctx, mainWindowTitle, x, y) {
 		runtime.WindowCenter(ctx)
 	}
 
@@ -137,31 +176,32 @@ func (a *App) domReady(ctx context.Context) {
 	}
 }
 
-// restorePosition 判断记住的窗口位置还能不能用。
+// placeWindow 把窗口摆到记住的屏幕坐标 (x, y)。
 //
-// 位置要是跑到所有屏幕外面去，窗口就再也拖不回来了，所以这种情况直接返回 false，
-// 让调用方改成居中显示。
-func (a *App) restorePosition(ctx context.Context, x, y int) bool {
+// Windows 上优先走 Win32 的绝对坐标摆位（Wails 的 WindowSetPosition
+// 是"当前显示器工作区相对坐标"，而保存下来的位置是物理绝对坐标，
+// 多屏时会错位）；其它平台或找不到句柄时退回 Wails。
+// 返回 false 表示位置无效（比如记在副屏上、副屏拔了），调用方改居中。
+func placeWindow(ctx context.Context, title string, x, y int) bool {
 	if x == 0 && y == 0 {
+		return false // 还没记住过位置
+	}
+	if nativePlaceWindow(title, x, y) {
+		return true
+	}
+	// 兜底：Wails 拿不到各屏位置，只能按"主屏左右一屏"的启发式放行。
+	screens, err := runtime.ScreenGetAll(ctx)
+	if err != nil {
 		return false
 	}
-
-	width, height := 1920, 1080
-	if screens, err := runtime.ScreenGetAll(ctx); err == nil {
-		for _, s := range screens {
-			if s.IsPrimary {
-				width, height = s.Size.Width, s.Size.Height
-				break
-			}
+	for _, s := range screens {
+		w, h := s.Size.Width, s.Size.Height
+		if x >= -w && x < w && y >= 0 && y < h {
+			runtime.WindowSetPosition(ctx, x, y)
+			return true
 		}
 	}
-
-	// 允许落在主屏左右各一屏的范围内：多屏时副屏可能在主屏左边（x 为负）。
-	if x < -width || x >= width || y < 0 || y >= height {
-		return false
-	}
-	runtime.WindowSetPosition(ctx, x, y)
-	return true
+	return false
 }
 
 // beforeClose 在窗口关闭前记住窗口位置，并把宠物一起带走。
@@ -171,7 +211,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	return false
 }
 
-// saveWindowPosition 把当前窗口位置写进配置。
+// saveWindowPosition 把当前窗口位置写进配置（合并写，只动位置字段）。
 func (a *App) saveWindowPosition(ctx context.Context) {
 	if ctx == nil {
 		return
@@ -179,9 +219,10 @@ func (a *App) saveWindowPosition(ctx context.Context) {
 	x, y := runtime.WindowGetPosition(ctx)
 	a.mu.Lock()
 	a.cfg.WindowX, a.cfg.WindowY = x, y
-	cfg := a.cfg
 	a.mu.Unlock()
-	_ = settings.Save(cfg)
+	_ = updateSettings(func(cfg *settings.Settings) {
+		cfg.WindowX, cfg.WindowY = x, y
+	})
 }
 
 // tick 刷新提示区状态并把最新状态推给前端。
@@ -199,7 +240,26 @@ func (a *App) tick() {
 	rates, worked, earned := a.rates(now)
 	a.refreshHint(earned, rates.DailyRate)
 
-	runtime.EventsEmit(a.ctx, "tick", a.snapshot(now, rates, worked, earned))
+	snap := a.snapshot(now, rates, worked, earned)
+	a.maybeNotifyOffWork(schedule.Status(snap.Status), earned)
+	runtime.EventsEmit(a.ctx, "tick", snap)
+}
+
+// maybeNotifyOffWork 检测"刚跨过下班点"，弹一次系统提醒。
+//
+// 只认上班中→已下班的跳变：启动时已经在晚上不会补弹；
+// 周末没有上班中状态，自然也不会弹。
+func (a *App) maybeNotifyOffWork(status schedule.Status, earned float64) {
+	a.mu.Lock()
+	prev := a.lastStatus
+	a.lastStatus = status
+	fire := !a.quiet && a.cfg.WantOffWorkNotify() &&
+		prev == schedule.StatusWorking && status == schedule.StatusOffWork
+	a.mu.Unlock()
+
+	if fire {
+		go nativeNotify("下班啦 🎉", fmt.Sprintf("今天已经赚 ￥%.2f，辛苦了，收工！", earned))
+	}
 }
 
 // rates 计算某时刻的薪资速度、已工作分钟数与已赚到的钱。
@@ -270,16 +330,13 @@ func (a *App) snapshot(now time.Time, rates salary.Rates, worked int, earned flo
 		Status:       string(status),
 		StatusTone:   toneOf(status),
 		UntilOff:     humanHMS(untilOff),
-		UntilOffSec:  int(untilOff.Seconds()),
 		UntilStart:   untilStartText(now, sched, status),
 		Worked:       humanMinutes(worked),
 		TotalWork:    humanMinutes(total),
 		Progress:     progress,
 		Earned:       earned,
-		DailyRate:    rates.DailyRate,
 		HourlyRate:   rates.HourlyRate,
 		MinuteRate:   rates.MinuteRate,
-		Goods:        list,
 		OpenSettings: openOnStart,
 	}
 
@@ -327,6 +384,8 @@ func hintLine(status schedule.Status, item goods.Item, minutes int) string {
 	switch status {
 	case schedule.StatusOffWork:
 		return fmt.Sprintf("%s · 今天已经下班啦，明天继续 💪", item.Name)
+	case schedule.StatusWeekend:
+		return fmt.Sprintf("%s · 今天休息，不赚钱也不花钱 🛌", item.Name)
 	case schedule.StatusLunch:
 		return fmt.Sprintf("%s · 午休中，赚钱速度暂停 ☕️", item.Name)
 	case schedule.StatusNotStarted:
@@ -352,8 +411,20 @@ func (a *App) GetSettings() settings.Settings {
 }
 
 // SaveSettings 保存配置并立即生效。
+//
+// 宠物管理的字段（位置、心情包、置顶）以磁盘上的最新值为准：
+// 设置面板开着的时候宠物可能挪了位置，不能被面板打开时的旧值冲掉。
+// 开机自启顺带同步到注册表。
 func (a *App) SaveSettings(cfg settings.Settings) error {
 	cfg = cfg.Normalize()
+	if disk, err := settings.Load(); err == nil {
+		cfg.PetX, cfg.PetY = disk.PetX, disk.PetY
+		cfg.PetPack = disk.PetPack
+		cfg.PetAlwaysOnTop = disk.PetAlwaysOnTop
+	}
+	if a.ctx != nil {
+		cfg.WindowX, cfg.WindowY = runtime.WindowGetPosition(a.ctx)
+	}
 	if err := settings.Save(cfg); err != nil {
 		return err
 	}
@@ -361,6 +432,10 @@ func (a *App) SaveSettings(cfg settings.Settings) error {
 	a.cfg = cfg
 	a.mu.Unlock()
 	a.rebuild(time.Now())
+
+	if err := applyAutoStart(cfg.AutoStart); err != nil {
+		fmt.Println("同步开机自启失败:", err)
+	}
 	return nil
 }
 
@@ -368,10 +443,9 @@ func (a *App) SaveSettings(cfg settings.Settings) error {
 func (a *App) SetAlwaysOnTop(on bool) error {
 	a.mu.Lock()
 	a.cfg.AlwaysOnTop = on
-	cfg := a.cfg
 	a.mu.Unlock()
 
-	if err := settings.Save(cfg); err != nil {
+	if err := updateSettings(func(cfg *settings.Settings) { cfg.AlwaysOnTop = on }); err != nil {
 		return err
 	}
 	if a.ctx != nil {
@@ -394,10 +468,9 @@ func (a *App) SetTheme(theme string) error {
 	}
 	a.mu.Lock()
 	a.cfg.Theme = theme
-	cfg := a.cfg
 	a.mu.Unlock()
 
-	return settings.Save(cfg)
+	return updateSettings(func(cfg *settings.Settings) { cfg.Theme = theme })
 }
 
 // Theme 返回当前主题（"dark" 或 "light"）。
@@ -429,6 +502,21 @@ func (a *App) Minimize() {
 	}
 }
 
+// onSecondInstance 有人想再开一个实例时走这里（单实例锁把第二个拦下并退出，
+// 第一个收到这条通知）：把窗口唤起来，对方带着 -s 参数的话顺手弹设置面板。
+func (a *App) onSecondInstance(data options.SecondInstanceData) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.WindowUnminimise(a.ctx)
+	for _, arg := range data.Args {
+		if arg == "-s" || arg == "--settings" {
+			a.OpenSettings()
+			return
+		}
+	}
+}
+
 // PetEnabled 返回桌面宠物开关状态。
 func (a *App) PetEnabled() bool {
 	a.mu.RLock()
@@ -440,10 +528,9 @@ func (a *App) PetEnabled() bool {
 func (a *App) SetPetEnabled(on bool) error {
 	a.mu.Lock()
 	a.cfg.PetEnabled = on
-	cfg := a.cfg
 	a.mu.Unlock()
 
-	if err := settings.Save(cfg); err != nil {
+	if err := updateSettings(func(cfg *settings.Settings) { cfg.PetEnabled = on }); err != nil {
 		return err
 	}
 	if on {
@@ -490,13 +577,11 @@ func (a *App) watchPet(cmd *exec.Cmd) {
 		return // 已经被主动停掉或换成了新进程，不用管
 	}
 
+	// 只改开关字段：拿内存里的整份配置覆盖会把宠物刚存的位置冲掉。
 	a.mu.Lock()
-	if a.cfg.PetEnabled {
-		a.cfg.PetEnabled = false
-	}
-	cfg := a.cfg
+	a.cfg.PetEnabled = false
 	a.mu.Unlock()
-	_ = settings.Save(cfg)
+	_ = updateSettings(func(cfg *settings.Settings) { cfg.PetEnabled = false })
 
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "pet-state", false)
@@ -519,16 +604,41 @@ func (a *App) stopPet() {
 }
 
 // untilStartText 生成"距离上班还有多久"。
+//
+// 下班后和周末都指向下一个工作日的上班时刻：周五晚上说"距星期一上班"，
+// 不再把周六当成要上班的日子。
 func untilStartText(now time.Time, sched schedule.Config, status schedule.Status) string {
-	if status == schedule.StatusOffWork {
-		tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location()).
-			Add(time.Duration(sched.WorkStart) * time.Minute)
-		return "距明天上班还有 " + humanMinutes(int(tomorrow.Sub(now).Minutes()))
-	}
-	if status == schedule.StatusWorking {
+	switch status {
+	case schedule.StatusWorking:
 		return ""
+	case schedule.StatusLunch:
+		// 原先这里会算出"距上班还有 0 分"（上班时刻已过），改成指向下午上班
+		return "距下午上班还有 " + humanMinutes(int(schedule.Until(now, sched.WorkResume).Minutes()))
+	case schedule.StatusOffWork, schedule.StatusWeekend:
+		next := nextWorkdayStart(now, sched)
+		return "距" + nextWorkdayLabel(now, next) + "上班还有 " + humanMinutes(int(next.Sub(now).Minutes()))
+	default: // 未上班（工作日早上）
+		return "距上班还有 " + humanMinutes(int(schedule.Until(now, sched.WorkStart).Minutes()))
 	}
-	return "距上班还有 " + humanMinutes(int(schedule.Until(now, sched.WorkStart).Minutes()))
+}
+
+// nextWorkdayStart 找 now 之后的第一个工作日上班时刻。
+func nextWorkdayStart(now time.Time, sched schedule.Config) time.Time {
+	d := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).
+		Add(time.Duration(sched.WorkStart) * time.Minute)
+	for !schedule.IsWorkday(d) || !d.After(now) {
+		d = d.AddDate(0, 0, 1)
+	}
+	return d
+}
+
+// nextWorkdayLabel 把目标日说成人话：明天就是"明天"，隔了周末就说星期几。
+func nextWorkdayLabel(now, next time.Time) string {
+	tomorrow := now.AddDate(0, 0, 1)
+	if next.Year() == tomorrow.Year() && next.Month() == tomorrow.Month() && next.Day() == tomorrow.Day() {
+		return "明天"
+	}
+	return weekdayCN(next)
 }
 
 // toneOf 把状态映射成前端用的色调标识。
@@ -540,6 +650,8 @@ func toneOf(s schedule.Status) string {
 		return "lunch"
 	case schedule.StatusOffWork:
 		return "off"
+	case schedule.StatusWeekend:
+		return "rest"
 	default:
 		return "idle"
 	}

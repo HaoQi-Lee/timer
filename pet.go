@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"timer/internal/settings"
 
@@ -65,14 +66,20 @@ func runPet() error {
 	// 用 WebView2 加载器的官方环境变量注入，只影响本进程。
 	os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-accelerated-video-decode")
 
+	// 置顶与否跟着配置走（右键菜单里可以切）
+	cfg, err := settings.Load()
+	if err != nil {
+		cfg = settings.Default()
+	}
+
 	app := NewPetApp()
 	return wails.Run(&options.App{
-		Title:            "桌宠大肥鱼",
+		Title:            petWindowTitle,
 		Width:            petWidth,
 		Height:           petHeight,
 		DisableResize:    true,
 		Frameless:        true,
-		AlwaysOnTop:      true,
+		AlwaysOnTop:      cfg.PetOnTop(),
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		AssetServer:      &assetserver.Options{Assets: petAssets{base: assets}},
 		Bind:             []interface{}{app},
@@ -121,17 +128,24 @@ func (a petAssets) Open(name string) (fs.File, error) {
 type PetApp struct {
 	ctx  context.Context
 	core *App
+	// 菜单看护：右键菜单展开期间盯"窗口外的鼠标按下"，盯到就收起菜单
+	watchMu     sync.Mutex
+	watchCancel chan struct{}
 }
 
 // NewPetApp 建好宠物后端。
 func NewPetApp() *PetApp {
-	return &PetApp{core: NewApp(false)}
+	core := NewApp(false)
+	core.quiet = true // 下班提醒只由主进程发，宠物不弹，不然会弹两份
+	return &PetApp{core: core}
 }
 
-// startup 启动计时引擎，宠物前端和主窗口一样收 tick 事件。
+// startup 启动计时引擎，宠物前端和主窗口一样收 tick 事件；
+// 另外起一个看护循环：位置动了就存、主进程改了配置就热加载。
 func (p *PetApp) startup(ctx context.Context) {
 	p.ctx = ctx
 	p.core.startup(ctx)
+	go p.watchConfig(ctx)
 }
 
 // domReady 摆好宠物窗口的位置：记住过就用记住的，否则居中显示。
@@ -141,9 +155,10 @@ func (p *PetApp) domReady(ctx context.Context) {
 	if err != nil {
 		cfg = settings.Default()
 	}
-	if !p.restorePosition(ctx, cfg.PetX, cfg.PetY) {
+	if !placeWindow(ctx, petWindowTitle, cfg.PetX, cfg.PetY) {
 		runtime.WindowCenter(ctx)
 	}
+	runtime.WindowSetAlwaysOnTop(ctx, cfg.PetOnTop())
 
 	// 窗口建好后把 Wails 默认的毛玻璃背景换成纯透明，别糊到桌面。
 	// 轮廓区域不用在这边套：前端视频一起来就开始采样上报（SetHitMask）。
@@ -156,53 +171,63 @@ func (p *PetApp) beforeClose(ctx context.Context) bool {
 	return false
 }
 
-// restorePosition 判断记住的位置还能不能用，跑出屏幕就返回 false。
-func (p *PetApp) restorePosition(ctx context.Context, x, y int) bool {
-	if x == 0 && y == 0 {
-		return false
-	}
-	width, height := primaryScreenSize(ctx)
-	if x < -width || x >= width || y < 0 || y >= height {
-		return false
-	}
-	runtime.WindowSetPosition(ctx, x, y)
-	return true
-}
-
-// primaryScreenSize 返回主屏大小，查不到时按 1080p 兜底。
-func primaryScreenSize(ctx context.Context) (int, int) {
-	if screens, err := runtime.ScreenGetAll(ctx); err == nil {
-		for _, s := range screens {
-			if s.IsPrimary {
-				return s.Size.Width, s.Size.Height
-			}
-		}
-	}
-	return 1920, 1080
-}
-
-// savePosition 把宠物当前位置写进配置。
+// savePosition 把宠物当前位置写进配置（合并写，只动位置字段）。
 func (p *PetApp) savePosition(ctx context.Context) {
 	if ctx == nil {
 		return
 	}
 	x, y := runtime.WindowGetPosition(ctx)
-	_ = savePetConfig(func(cfg *settings.Settings) {
+	_ = updateSettings(func(cfg *settings.Settings) {
 		cfg.PetX, cfg.PetY = x, y
 	})
 }
 
-// savePetConfig 重新读盘、只改桌宠字段后写回。
+// watchConfig 是宠物进程的看护循环，每 3 秒干两件事：
 //
-// 宠物和主程序是两个进程、共用一个配置文件，
-// 拿内存里的整份配置直接覆盖会把主进程刚写的字段冲掉。
-func savePetConfig(mutate func(cfg *settings.Settings)) error {
-	cfg, err := settings.Load()
+//   - 位置没变就不写盘（原来是无条件心跳写，白写一整天）；
+//   - 配置文件的计时字段变了（主窗口改了年薪/排班/物品）就热加载，
+//     宠物气泡里的数据不用重启就能跟上主窗口。
+func (p *PetApp) watchConfig(ctx context.Context) {
+	path, err := settings.Path()
 	if err != nil {
-		cfg = settings.Default()
+		return
 	}
-	mutate(&cfg)
-	return settings.Save(cfg)
+
+	p.core.mu.RLock()
+	lastSig := timerSignature(p.core.cfg)
+	p.core.mu.RUnlock()
+	var lastMod time.Time
+	savedX, savedY := 0, 0
+	saved := false
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		// 1) 位置：动了才存。主进程退出时是直接杀掉宠物的，靠这个兜底，
+		//    位置最多丢最后 3 秒。
+		if x, y := runtime.WindowGetPosition(ctx); !saved || x != savedX || y != savedY {
+			if updateSettings(func(cfg *settings.Settings) {
+				cfg.PetX, cfg.PetY = x, y
+			}) == nil {
+				savedX, savedY, saved = x, y, true
+			}
+		}
+
+		// 2) 配置：文件动过且计时字段真的变了才重算（位置字段变了不用管）。
+		fi, err := os.Stat(path)
+		if err != nil || fi.ModTime().Equal(lastMod) {
+			continue
+		}
+		lastMod = fi.ModTime()
+		cfg, err := settings.Load()
+		if err != nil {
+			continue
+		}
+		if sig := timerSignature(cfg); sig != lastSig {
+			lastSig = sig
+			p.core.applyConfig(cfg)
+		}
+	}
 }
 
 // Snapshot 返回当前完整状态，宠物前端启动时主动拉一次。
@@ -224,9 +249,32 @@ func (p *PetApp) SetPack(pack string) error {
 	if !settings.ValidPetPack(pack) {
 		return fmt.Errorf("未知表情包: %q", pack)
 	}
-	return savePetConfig(func(cfg *settings.Settings) {
+	return updateSettings(func(cfg *settings.Settings) {
 		cfg.PetPack = pack
 	})
+}
+
+// PetAlwaysOnTop 返回宠物窗口是否置顶。
+func (p *PetApp) PetAlwaysOnTop() bool {
+	cfg, err := settings.Load()
+	if err != nil {
+		return true
+	}
+	return cfg.PetOnTop()
+}
+
+// SetPetAlwaysOnTop 切换宠物置顶并记住（合并写，不动别的字段）。
+func (p *PetApp) SetPetAlwaysOnTop(on bool) error {
+	if err := updateSettings(func(cfg *settings.Settings) {
+		v := on
+		cfg.PetAlwaysOnTop = &v
+	}); err != nil {
+		return err
+	}
+	if p.ctx != nil {
+		runtime.WindowSetAlwaysOnTop(p.ctx, on)
+	}
+	return nil
 }
 
 // SetHitMask 收前端采样来的轮廓蒙版（cols×rows 网格，每格 '0'/'1'），
@@ -245,24 +293,61 @@ func (p *PetApp) SetHitMask(cols, rows int, bits string) {
 // 右键菜单可能伸到角色轮廓外面，轮廓区域会把菜单裁掉、点不到，
 // 菜单打开期间临时展开成整窗并暂停贴轮廓（SetHitMask 只记不套），
 // 关掉再用最新一份蒙版贴回去。
+// 展开的同时开始盯窗口外的点击——菜单展开着的时候那块透明窗口
+// 会吃掉点击，而点到窗口外时 WebView 收不到事件，只能在这层收。
 func (p *PetApp) SetRegionFull(full bool) {
 	petMaskMu.Lock()
-	defer petMaskMu.Unlock()
 	petMaskHold = full
 	setPetRegionFull(full)
+	petMaskMu.Unlock()
+
+	if full {
+		p.startOutsideWatch()
+	} else {
+		p.stopOutsideWatch()
+	}
 }
 
-// SavePosition 记住宠物当前位置。
-//
-// 前端每隔几秒调一次当心跳：主程序退出时是直接杀掉宠物进程的，
-// 靠心跳兜底，位置最多丢最后几秒。
-func (p *PetApp) SavePosition() {
-	p.savePosition(p.ctx)
+// startOutsideWatch 盯住"窗口外的鼠标按下"，盯到就让前端收起菜单。
+func (p *PetApp) startOutsideWatch() {
+	p.watchMu.Lock()
+	defer p.watchMu.Unlock()
+	if p.watchCancel != nil {
+		return // 已经在盯了
+	}
+	cancel := make(chan struct{})
+	p.watchCancel = cancel
+	go func() {
+		fired := waitOutsideClick(cancel)
+
+		p.watchMu.Lock()
+		if p.watchCancel == cancel {
+			p.watchCancel = nil
+		}
+		p.watchMu.Unlock()
+
+		if fired && p.ctx != nil {
+			runtime.EventsEmit(p.ctx, "pet-hide-menu")
+		}
+	}()
+}
+
+// stopOutsideWatch 停掉窗口外点击看护（菜单收起时调用）。
+func (p *PetApp) stopOutsideWatch() {
+	p.watchMu.Lock()
+	defer p.watchMu.Unlock()
+	if p.watchCancel != nil {
+		close(p.watchCancel)
+		p.watchCancel = nil
+	}
 }
 
 // ClosePet 收起宠物：宠物自己退出，主进程会探测到并同步开关状态。
 func (p *PetApp) ClosePet() {
-	if p.ctx != nil {
-		runtime.Quit(p.ctx)
+	if p.ctx == nil {
+		return
 	}
+	// Quit 之前先把位置落盘：runtime.Quit 不一定回头走 beforeClose。
+	p.savePosition(p.ctx)
+	runtime.Quit(p.ctx)
 }

@@ -34,7 +34,7 @@ func main() {
 	app := NewApp(openSettings)
 
 	if err := wails.Run(&options.App{
-		Title:            "上班计时器",
+		Title:            mainWindowTitle,
 		Width:            340,
 		Height:           500,
 		MinWidth:         340,
@@ -49,6 +49,12 @@ func main() {
 		OnStartup:        app.startup,
 		OnDomReady:       app.domReady,
 		OnBeforeClose:    app.beforeClose,
+		// 单实例：再开一个只会把已经跑着的窗口唤起来，不会出现双宠物、配置互踩。
+		// 宠物子进程（-pet）不走这个锁，不受影响。
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "work-timer-" + mainWindowTitle,
+			OnSecondInstanceLaunch: app.onSecondInstance,
+		},
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
@@ -68,6 +74,7 @@ func main() {
 // logFatal 记录致命错误。
 //
 // 程序编译成图形子系统后没有控制台可输出，错误只能落到日志文件里。
+// 追加写：截断覆盖的话日志里永远只剩最后一条错误。
 func logFatal(msg string, err error) {
 	line := fmt.Sprintf("%s %s: %v\n", time.Now().Format("2006-01-02 15:04:05"), msg, err)
 
@@ -75,7 +82,10 @@ func logFatal(msg string, err error) {
 	if perr == nil {
 		dir := filepath.Dir(path)
 		if merr := os.MkdirAll(dir, 0o755); merr == nil {
-			if ferr := os.WriteFile(filepath.Join(dir, "error.log"), []byte(line), 0o644); ferr == nil {
+			if f, oerr := os.OpenFile(filepath.Join(dir, "error.log"),
+				os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); oerr == nil {
+				_, _ = f.WriteString(line)
+				_ = f.Close()
 				return
 			}
 		}

@@ -1,11 +1,12 @@
 :root {
   --radius: 14px;
 
-  /* 状态色板：未上班 / 上班中 / 午休中 / 已下班 */
+  /* 状态色板：未上班 / 上班中 / 午休中 / 已下班 / 休息日 */
   --tone-idle: 125, 155, 200;
   --tone-working: 52, 211, 153;
   --tone-lunch: 251, 191, 36;
   --tone-off: 148, 163, 184;
+  --tone-rest: 165, 160, 250;
 
   /* 默认强调色，状态色还没算出来时先用它 */
   --tone: 125, 155, 200;
@@ -42,6 +43,7 @@
   --tone-working: 19, 128, 92;
   --tone-lunch: 165, 108, 8;
   --tone-off: 106, 119, 138;
+  --tone-rest: 109, 100, 217;
 
   --text: 26, 34, 51;
   --muted: 114, 127, 149;
@@ -97,6 +99,7 @@ input,
 :root[data-tone="lunch"]   { --tone: var(--tone-lunch); }
 :root[data-tone="idle"]    { --tone: var(--tone-idle); }
 :root[data-tone="off"]     { --tone: var(--tone-off); }
+:root[data-tone="rest"]    { --tone: var(--tone-rest); }
 
 /* ---------- 主体卡片 ---------- */
 

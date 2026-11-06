@@ -8,6 +8,7 @@ import (
 	"timer/internal/goods"
 	"timer/internal/salary"
 	"timer/internal/schedule"
+	"timer/internal/settings"
 )
 
 func TestHumanMinutes(t *testing.T) {
@@ -62,6 +63,9 @@ func TestHintLine(t *testing.T) {
 	}
 	if got := hintLine(schedule.StatusOffWork, shirt, 46); got != "一件 T恤 · 今天已经下班啦，明天继续 💪" {
 		t.Errorf("下班提示不对: %q", got)
+	}
+	if got := hintLine(schedule.StatusWeekend, shirt, 46); got != "一件 T恤 · 今天休息，不赚钱也不花钱 🛌" {
+		t.Errorf("周末提示不对: %q", got)
 	}
 }
 
@@ -208,6 +212,47 @@ func TestUntilStartText(t *testing.T) {
 	if got != "距明天上班还有 14 小时 30 分" {
 		t.Errorf("下班后提示不对: %q", got)
 	}
+
+	// 午休时指向下午上班
+	lunch := time.Date(2026, 11, 3, 12, 0, 0, 0, time.Local)
+	if got := untilStartText(lunch, c, schedule.StatusLunch); got != "距下午上班还有 1 小时" {
+		t.Errorf("午休提示不对: %q", got)
+	}
+}
+
+func TestUntilStartTextSkipsWeekend(t *testing.T) {
+	c := schedule.Default()
+
+	// 周五 18:00 已下班：下一个工作日是周一 8:30，不是"明天"周六
+	fri := time.Date(2026, 11, 6, 18, 0, 0, 0, time.Local)
+	if got := untilStartText(fri, c, schedule.StatusOffWork); got != "距星期一上班还有 62 小时 30 分" {
+		t.Errorf("周五晚上提示不对: %q", got)
+	}
+
+	// 周六上午：休息日，同样指向周一 8:30
+	sat := time.Date(2026, 11, 7, 10, 0, 0, 0, time.Local)
+	if got := untilStartText(sat, c, schedule.StatusWeekend); got != "距星期一上班还有 46 小时 30 分" {
+		t.Errorf("周六提示不对: %q", got)
+	}
+}
+
+func TestTimerSignature(t *testing.T) {
+	base := settings.Default()
+	if timerSignature(base) != timerSignature(settings.Default()) {
+		t.Error("同样的配置指纹应一致")
+	}
+
+	changed := settings.Default()
+	changed.AnnualSalary = 100000
+	if timerSignature(base) == timerSignature(changed) {
+		t.Error("年薪变了指纹应不同")
+	}
+
+	moved := settings.Default()
+	moved.PetX, moved.PetY = 999, 888
+	if timerSignature(base) != timerSignature(moved) {
+		t.Error("宠物位置不影响计时，指纹不应变化")
+	}
 }
 
 func TestToneOf(t *testing.T) {
@@ -215,6 +260,7 @@ func TestToneOf(t *testing.T) {
 		schedule.StatusWorking:    "working",
 		schedule.StatusLunch:      "lunch",
 		schedule.StatusOffWork:    "off",
+		schedule.StatusWeekend:    "rest",
 		schedule.StatusNotStarted: "idle",
 	}
 	for st, want := range cases {

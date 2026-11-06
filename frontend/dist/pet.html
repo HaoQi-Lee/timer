@@ -22,8 +22,19 @@
     </div>
   </div>
 
-  <!-- 右键菜单：只留收起 -->
+  <!-- 右键菜单：心情包 + 置顶 + 收起 -->
   <div class="ctx-menu" id="ctxMenu">
+    <div class="ctx-title">心情</div>
+    <div class="ctx-packs" id="ctxPacks">
+      <button data-pack="classic">咸鱼</button>
+      <button data-pack="happy">元气</button>
+      <button data-pack="foodie">干饭</button>
+      <button data-pack="sleepy">睡神</button>
+      <button data-pack="angry">暴躁</button>
+    </div>
+    <div class="ctx-sep"></div>
+    <button data-action="toggle-top" id="ctxToggleTop">始终置顶</button>
+    <div class="ctx-sep"></div>
     <button data-action="close" class="danger">收起大肥鱼</button>
   </div>
 

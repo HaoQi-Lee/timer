@@ -54,6 +54,9 @@
     if (s.statusTone === 'off') {
       $('countdownLabel').textContent = '今日已下班';
       $('untilOff').textContent = '辛苦啦，明天见';
+    } else if (s.statusTone === 'rest') {
+      $('countdownLabel').textContent = '今天休息日';
+      $('untilOff').textContent = '好好休息 🛌';
     } else {
       $('countdownLabel').textContent = '距离下班还有';
       $('untilOff').textContent = s.untilOff;
@@ -93,6 +96,8 @@
     $('petEnabled').checked = !!s.petEnabled;
     petOn = !!s.petEnabled;
     updatePetLabel();
+    $('notifyOffWork').checked = s.notifyOffWork !== false;
+    $('autoStart').checked = !!s.autoStart;
     applyTheme(s.theme);
     customGoods = (s.customGoods || []).slice();
     renderGoods();
@@ -198,7 +203,10 @@
       petEnabled: $('petEnabled').checked,
       petPack: settings ? (settings.petPack || 'classic') : 'classic',
       petX: settings ? (settings.petX || 0) : 0,
-      petY: settings ? (settings.petY || 0) : 0
+      petY: settings ? (settings.petY || 0) : 0,
+      petAlwaysOnTop: settings ? settings.petAlwaysOnTop : undefined,
+      notifyOffWork: $('notifyOffWork').checked,
+      autoStart: $('autoStart').checked
     };
     try {
       await api().SaveSettings(payload);

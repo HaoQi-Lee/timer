@@ -78,6 +78,43 @@ func TestWorkedMinutes(t *testing.T) {
 	}
 }
 
+func TestStatusAtWeekend(t *testing.T) {
+	c := Default()
+	// 2026-11-07 是星期六、2026-11-08 是星期日
+	sat := time.Date(2026, 11, 7, 10, 0, 0, 0, time.Local)
+	sun := time.Date(2026, 11, 8, 20, 0, 0, 0, time.Local)
+	if got := c.StatusAt(sat); got != StatusWeekend {
+		t.Errorf("周六上午应为休息日，实际 %s", got)
+	}
+	if got := c.StatusAt(sun); got != StatusWeekend {
+		t.Errorf("周日晚上应为休息日，实际 %s", got)
+	}
+}
+
+func TestWorkedMinutesWeekend(t *testing.T) {
+	c := Default()
+	sat := time.Date(2026, 11, 7, 15, 0, 0, 0, time.Local)
+	if got := c.WorkedMinutes(sat); got != 0 {
+		t.Errorf("周末不应有工时，实际 %d 分钟", got)
+	}
+}
+
+func TestIsWorkday(t *testing.T) {
+	// 2026-11-06 星期五、11-07 星期六、11-09 星期一
+	if !IsWorkday(time.Date(2026, 11, 6, 12, 0, 0, 0, time.Local)) {
+		t.Error("星期五应是工作日")
+	}
+	if IsWorkday(time.Date(2026, 11, 7, 12, 0, 0, 0, time.Local)) {
+		t.Error("星期六不应是工作日")
+	}
+	if IsWorkday(time.Date(2026, 11, 8, 12, 0, 0, 0, time.Local)) {
+		t.Error("星期日不应是工作日")
+	}
+	if !IsWorkday(time.Date(2026, 11, 9, 12, 0, 0, 0, time.Local)) {
+		t.Error("星期一应是工作日")
+	}
+}
+
 func TestUntil(t *testing.T) {
 	now := time.Date(2026, 11, 3, 15, 30, 0, 0, time.Local)
 	if got := Until(now, 17*60); got != 90*time.Minute {

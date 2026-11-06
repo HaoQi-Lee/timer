@@ -90,6 +90,8 @@
   const video = $('petVideo');
   const bubble = $('bubble');
   const ctxMenu = $('ctxMenu');
+  const ctxPacks = $('ctxPacks');
+  const ctxToggleTop = $('ctxToggleTop');
 
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const money = (v) => '￥' + Number(v || 0).toFixed(2);
@@ -151,12 +153,24 @@
   canvas.width = Math.round(240 * dpr);
   canvas.height = Math.round(285 * dpr);
   const vctx = canvas.getContext('2d');
+  // 视频才 30fps，rAF 是 60fps：帧号没前进就不重画，白画的 GPU 都省下来
+  let lastFrameKey = -1;
+  function frameKey() {
+    if (typeof video.getVideoPlaybackQuality === 'function') {
+      return video.getVideoPlaybackQuality().totalVideoFrames;
+    }
+    return video.currentTime; // 拿不到帧号就退回按播放进度判断
+  }
   (function drawFrame() {
     if (video.readyState >= 2) {
-      // 每帧先清画布：drawImage 是 source-over 合成，视频帧的透明处
-      // 会露出上一帧的残像——快速动作时的"重影"就是这个
-      vctx.clearRect(0, 0, canvas.width, canvas.height);
-      vctx.drawImage(video, 200, 50, 240, 285, 0, 0, canvas.width, canvas.height);
+      const key = frameKey();
+      if (key !== lastFrameKey) {
+        lastFrameKey = key;
+        // 先清画布：drawImage 是 source-over 合成，视频帧的透明处
+        // 会露出上一帧的残像——快速动作时的"重影"就是这个
+        vctx.clearRect(0, 0, canvas.width, canvas.height);
+        vctx.drawImage(video, 200, 50, 240, 285, 0, 0, canvas.width, canvas.height);
+      }
     }
     requestAnimationFrame(drawFrame);
   })();
@@ -232,12 +246,24 @@
 
   // ---------- 心情包 ----------
 
-  // 右键菜单只有"收起"，心情包跟着配置走（默认摸鱼咸鱼）；
-  // sleepy 心情会让她直接睡过去（换循环动画）。
+  // 心情包跟着配置走（默认摸鱼咸鱼）；sleepy 心情会让她直接睡过去（换循环动画）。
   function applyPack(key) {
     pack = ['classic', 'happy', 'foodie', 'sleepy', 'angry'].includes(key) ? key : 'classic';
     document.body.dataset.pack = pack;
+    markActivePack();
     playBase();
+  }
+
+  // 右键菜单里当前心情加高亮
+  function markActivePack() {
+    ctxPacks.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('active', b.dataset.pack === pack);
+    });
+  }
+
+  async function switchPack(key) {
+    applyPack(key);
+    try { await api().SetPack(key); } catch (e) { console.error('切换心情包失败', e); }
   }
 
   // ---------- 气泡 ----------
@@ -255,7 +281,11 @@
     const s = snap;
     if (!s) return null;
     const pool = [];
-    if (s.statusTone === 'off') {
+    if (s.statusTone === 'rest') {
+      pool.push('今天休息，一起躺平 🛌');
+      pool.push('休息日不赚钱，主打一个充电 🔋');
+      if (s.untilStart) pool.push(s.untilStart);
+    } else if (s.statusTone === 'off') {
       pool.push('下班啦，鱼儿归海 🌊');
       pool.push('今天赚了 ' + money(s.earned) + '，落袋为安');
     } else {
@@ -350,6 +380,17 @@
     try { api().SetRegionFull(false); } catch (e) { /* 失败了轮廓会宽一点，无碍 */ }
   }
 
+  let topOn = true;
+  function updateTopLabel() {
+    ctxToggleTop.textContent = topOn ? '取消置顶' : '始终置顶';
+  }
+
+  async function toggleTop() {
+    topOn = !topOn;
+    updateTopLabel();
+    try { await api().SetPetAlwaysOnTop(topOn); } catch (e) { console.error('切换置顶失败', e); }
+  }
+
   document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     try { api().SetRegionFull(true); } catch (e) { /* 同上 */ }
@@ -365,26 +406,35 @@
   ctxMenu.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
+    // 心情包按钮：切完不收菜单，方便连着试
+    if (btn.dataset.pack) {
+      switchPack(btn.dataset.pack);
+      return;
+    }
     hideCtxMenu();
     if (btn.dataset.action === 'close') {
       try { api().ClosePet(); } catch (err) { console.error(err); }
+    } else if (btn.dataset.action === 'toggle-top') {
+      toggleTop();
     }
   });
 
-  // ---------- 数据与心跳 ----------
+  // ---------- 数据 ----------
 
   window.runtime.EventsOn('tick', (s) => { snap = s; });
 
-  // 每隔几秒报一次位置：主程序退出时是直接杀进程的，靠这个兜底记忆位置
-  setInterval(() => {
-    try { api().SavePosition(); } catch (e) { /* 失败了下次再试 */ }
-  }, 3000);
+  // 窗口外的点击 WebView 收不到，Go 侧轮询发现后发这个事件来收菜单
+  window.runtime.EventsOn('pet-hide-menu', () => hideCtxMenu());
+
+  // 位置记忆由 Go 侧的看护循环负责（位置动了才写盘），前端不用再心跳上报。
 
   // ---------- 启动 ----------
 
   (async function init() {
     try { applyPack(await api().GetPack()); } catch (e) { applyPack('classic'); }
     try { snap = await api().Snapshot(); } catch (e) { /* 拿不到就先不播报数据 */ }
+    try { topOn = await api().PetAlwaysOnTop(); } catch (e) { topOn = true; }
+    updateTopLabel();
 
     scheduleIdleBubble();
     scheduleRandomAction();

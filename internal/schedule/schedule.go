@@ -2,6 +2,7 @@
 //
 // 一天被切成四段：未上班、上午上班、午休、下午上班、已下班。
 // 真正"工作"的时间只有上午与下午两段，午休不计入工时。
+// 周六周日整天都是休息日：不算工时、工资不涨、状态单独标识。
 package schedule
 
 import (
@@ -21,6 +22,8 @@ const (
 	StatusLunch Status = "午休中"
 	// StatusOffWork 已经下班。
 	StatusOffWork Status = "已下班"
+	// StatusWeekend 周末休息日。
+	StatusWeekend Status = "休息日"
 )
 
 // Segment 是以"当天 0 点起的分钟数"表示的半开区间 [Start, End)。
@@ -59,8 +62,17 @@ func (c Config) TotalWorkMinutes() int {
 	return total
 }
 
-// StatusAt 返回 t 时刻所处的阶段。
+// IsWorkday 判断 t 所在的日子是不是工作日（周一到周五）。
+func IsWorkday(t time.Time) bool {
+	wd := t.Weekday()
+	return wd != time.Saturday && wd != time.Sunday
+}
+
+// StatusAt 返回 t 时刻所处的阶段。周末整天都是休息日。
 func (c Config) StatusAt(t time.Time) Status {
+	if !IsWorkday(t) {
+		return StatusWeekend
+	}
 	switch m := MinutesOfDay(t); {
 	case m < c.WorkStart:
 		return StatusNotStarted
@@ -75,8 +87,12 @@ func (c Config) StatusAt(t time.Time) Status {
 	}
 }
 
-// WorkedMinutes 返回 t 时刻当天已经工作了多少分钟。已下班时返回全天工时。
+// WorkedMinutes 返回 t 时刻当天已经工作了多少分钟。已下班时返回全天工时，
+// 周末不工作，返回 0。
 func (c Config) WorkedMinutes(t time.Time) int {
+	if !IsWorkday(t) {
+		return 0
+	}
 	m := MinutesOfDay(t)
 	worked := 0
 	for _, s := range c.WorkSegments() {
