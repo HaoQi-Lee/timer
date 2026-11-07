@@ -183,3 +183,20 @@ func TestOldConfigUpgradesKeepDefaults(t *testing.T) {
 		t.Error("老配置升级后应默认弹下班提醒")
 	}
 }
+
+// TestLoadFromBOM 带 UTF-8 BOM 的配置要能正常解析（记事本/PowerShell 写出的样子）。
+func TestLoadFromBOM(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if err := os.WriteFile(path, append(bom, []byte(`{"annualSalary":123456}`)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("带 BOM 解析失败: %v", err)
+	}
+	if s.AnnualSalary != 123456 {
+		t.Fatalf("AnnualSalary = %v，要 123456", s.AnnualSalary)
+	}
+}

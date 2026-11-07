@@ -2,6 +2,7 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -200,6 +201,9 @@ func LoadFrom(path string) (Settings, error) {
 		}
 		return Default(), err
 	}
+	// 容错 UTF-8 BOM：记事本（老版）或 PowerShell 写出的配置会带头，
+	// encoding/json 不认它，整份配置会被当成解析失败退回默认值。
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 	var s Settings
 	if err := json.Unmarshal(data, &s); err != nil {
 		return Default(), err

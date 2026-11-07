@@ -22,3 +22,17 @@ func nativeNotify(title, body string) {
 
 // applyAutoStart 非 Windows 暂不支持（macOS 要配登录项，后续再说）。
 func applyAutoStart(bool) error { return nil }
+
+// 托盘只在 Windows 上实现；macOS 保持"最小化进程序坞"。
+
+// setupTray 空操作。
+func setupTray(func()) {}
+
+// minimizeToTray 返回 false，调用方退回普通最小化。
+func minimizeToTray() bool { return false }
+
+// restoreFromTray 空操作。
+func restoreFromTray() {}
+
+// removeTrayIcon 空操作。
+func removeTrayIcon() {}

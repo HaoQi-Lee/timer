@@ -150,6 +150,9 @@ func (a *App) startup(ctx context.Context) {
 
 // domReady 在前端就绪后摆好窗口位置，并重新确认置顶状态。
 func (a *App) domReady(ctx context.Context) {
+	// 挂上托盘钩子：最小化从此走"藏窗口 + 右下角图标"，不再进任务栏。
+	setupTray(a.Quit)
+
 	a.mu.RLock()
 	x, y := a.cfg.WindowX, a.cfg.WindowY
 	top := a.cfg.AlwaysOnTop
@@ -204,9 +207,10 @@ func placeWindow(ctx context.Context, title string, x, y int) bool {
 	return false
 }
 
-// beforeClose 在窗口关闭前记住窗口位置，并把宠物一起带走。
+// beforeClose 在窗口关闭前记住窗口位置，摘掉托盘图标，并把宠物一起带走。
 func (a *App) beforeClose(ctx context.Context) bool {
 	a.saveWindowPosition(ctx)
+	removeTrayIcon()
 	a.stopPet()
 	return false
 }
@@ -495,11 +499,16 @@ func (a *App) Quit() {
 	}
 }
 
-// Minimize 把窗口收进任务栏。
+// Minimize 把窗口收进右下角托盘（任务栏不占位）；
+// 托盘没就绪或非 Windows 平台退回普通最小化。
 func (a *App) Minimize() {
-	if a.ctx != nil {
-		runtime.WindowMinimise(a.ctx)
+	if a.ctx == nil {
+		return
 	}
+	if minimizeToTray() {
+		return
+	}
+	runtime.WindowMinimise(a.ctx)
 }
 
 // onSecondInstance 有人想再开一个实例时走这里（单实例锁把第二个拦下并退出，
@@ -508,6 +517,7 @@ func (a *App) onSecondInstance(data options.SecondInstanceData) {
 	if a.ctx == nil {
 		return
 	}
+	restoreFromTray() // 窗口可能正藏在托盘里
 	runtime.WindowUnminimise(a.ctx)
 	for _, arg := range data.Args {
 		if arg == "-s" || arg == "--settings" {

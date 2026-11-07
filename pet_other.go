@@ -19,6 +19,10 @@ func applyPetMask() {}
 // setPetRegionFull 在非 Windows 上是空操作：窗口始终是整窗矩形。
 func setPetRegionFull(bool) {}
 
+// hidePetFromTaskbar 在非 Windows 上是空操作：macOS 桌宠窗口本来
+// 就不进 Dock 任务栏（程序坞里只有主进程）。
+func hidePetFromTaskbar() {}
+
 // waitOutsideClick 非 Windows 上没有实现，等取消就返回（菜单只靠窗口内点击收起）。
 func waitOutsideClick(cancel <-chan struct{}) bool {
 	<-cancel

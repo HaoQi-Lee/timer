@@ -254,9 +254,38 @@ func setPetRegionFull(full bool) {
 
 // 窗口外点击看护用的调用。
 var (
-	procGetCursorPos     = user32DLL.NewProc("GetCursorPos")
-	procGetAsyncKeyState = user32DLL.NewProc("GetAsyncKeyState")
+	procGetCursorPos      = user32DLL.NewProc("GetCursorPos")
+	procGetAsyncKeyState  = user32DLL.NewProc("GetAsyncKeyState")
+	procGetWindowLongPtrW = user32DLL.NewProc("GetWindowLongPtrW")
 )
+
+// 任务栏相关的扩展样式与 SetWindowPos 标志。
+const (
+	wsExToolWindow  = 0x00000080
+	wsExAppWindow   = 0x00040000
+	gwlExStyle      = ^uintptr(19) // GWL_EXSTYLE = -20
+	swpFrameChanged = 0x0020
+)
+
+// hidePetFromTaskbar 让宠物窗口不进任务栏（也不进 Alt+Tab）。
+//
+// 桌宠不是"应用窗口"，占一格任务栏既难看又容易和主窗口搞混。
+// 光设 WS_EX_TOOLWINDOW 不够：Wails（winc）建窗时带的是
+// WS_EX_APPWINDOW（见其 form.go 的 NewForm），而任务栏规则里
+// APPWINDOW 优先于 TOOLWINDOW——两个都在时按钮照样显示，
+// 必须把 APPWINDOW 清掉。趁窗口还藏着（runPet 用 StartHidden
+// 建窗，domReady 里设完样式才 WindowShow）改样式，任务栏按钮
+// 从头到尾不会出现。
+func hidePetFromTaskbar() {
+	if petHwnd == 0 {
+		return
+	}
+	ex, _, _ := procGetWindowLongPtrW.Call(petHwnd, gwlExStyle)
+	procSetWindowLongPtrW.Call(petHwnd, gwlExStyle, (ex&^wsExAppWindow)|wsExToolWindow)
+	// FRAMECHANGED 让新样式立刻生效，不用藏窗口再显示一遍
+	procSetWindowPos.Call(petHwnd, 0, 0, 0, 0, 0,
+		swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged)
+}
 
 // winPoint 对应 Win32 的 POINT。
 type winPoint struct{ X, Y int32 }

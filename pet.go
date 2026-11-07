@@ -74,12 +74,15 @@ func runPet() error {
 
 	app := NewPetApp()
 	return wails.Run(&options.App{
-		Title:            petWindowTitle,
-		Width:            petWidth,
-		Height:           petHeight,
-		DisableResize:    true,
-		Frameless:        true,
-		AlwaysOnTop:      cfg.PetOnTop(),
+		Title:         petWindowTitle,
+		Width:         petWidth,
+		Height:        petHeight,
+		DisableResize: true,
+		Frameless:     true,
+		AlwaysOnTop:   cfg.PetOnTop(),
+		// 藏着建窗口：先把"不进任务栏"的窗口样式设好再显示（见 domReady），
+		// 免得任务栏按钮先冒出来再消失闪一下。
+		StartHidden:      true,
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		AssetServer:      &assetserver.Options{Assets: petAssets{base: assets}},
 		Bind:             []interface{}{app},
@@ -163,6 +166,10 @@ func (p *PetApp) domReady(ctx context.Context) {
 	// 窗口建好后把 Wails 默认的毛玻璃背景换成纯透明，别糊到桌面。
 	// 轮廓区域不用在这边套：前端视频一起来就开始采样上报（SetHitMask）。
 	unblurPetWindow()
+
+	// 趁窗口还藏着摘掉任务栏按钮，样式落定后再显示出来。
+	hidePetFromTaskbar()
+	runtime.WindowShow(ctx)
 }
 
 // beforeClose 在宠物窗口关闭前记住位置。
